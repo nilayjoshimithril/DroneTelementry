@@ -13,3 +13,25 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Kotlin compiler session data
+.kotlin/
+
+# Graphify knowledge graph output (regenerate with /graphify)
+graphify-out/
+
+# Signing keys and secrets
+*.jks
+*.keystore
+keystore.properties
+.env
+.env.*
+
+# Build artifacts and logs
+*.apk
+*.aab
+*.log
+hs_err_pid*
+
+# Claude Code local settings
+.claude/settings.local.json
