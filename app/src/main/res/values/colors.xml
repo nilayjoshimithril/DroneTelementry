@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="md_secondary">#0E0F13</color>
+    <color name="md_primary">#FFFFFF</color>
+    <color name="md_red">#EF4141</color>
+    <color name="md_orange">#FF891C</color>
+    <color name="md_blue">#297FFF</color>
+    <color name="md_green">#08CF3F</color>
+    <color name="md_turquoise">#0EEAC6</color>
+    <color name="md_hint">#939191</color>
+    <color name="md_status_gray">#A3A6A4</color>
+    <color name="md_status_cyan">#0FBBE2</color>
+    <color name="md_status_red">#F42424</color>
+    <color name="md_lemon">#FFE68D</color>
+    <color name="md_surface">#F7F7F8</color>
+    <color name="md_divider">#1A0E0F13</color>
+    <color name="md_card_verification">#33FF891C</color>
+    <color name="md_card_lockdown">#33EF4141</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>
+

@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/md_secondary">
+
+    <ImageView
+        android:id="@+id/app_background"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no"
+        android:scaleType="centerCrop"
+        android:src="@drawable/app_background" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:baselineAligned="false"
+        android:orientation="horizontal"
+        android:padding="40dp">
+
+        <!-- Brand / pilot framing — tablet left pane -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1.05"
+            android:gravity="center_vertical"
+            android:orientation="vertical"
+            android:paddingEnd="32dp">
+
+            <ImageView
+                android:layout_width="96dp"
+                android:layout_height="96dp"
+                android:contentDescription="@string/brand_title"
+                android:src="@drawable/app_logo" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="28dp"
+                android:fontFamily="@font/titilliumweb_bold"
+                android:letterSpacing="0.06"
+                android:text="@string/brand_title"
+                android:textAllCaps="true"
+                android:textColor="@color/md_primary"
+                android:textSize="18sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:fontFamily="@font/titilliumweb_bold"
+                android:text="@string/login_hero_title"
+                android:textColor="@color/md_primary"
+                android:textSize="42sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:lineSpacingExtra="4dp"
+                android:maxWidth="420dp"
+                android:text="@string/login_hero_body"
+                android:textColor="@color/md_hint"
+                android:textSize="17sp" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="28dp"
+                android:background="@drawable/bg_chip"
+                android:orientation="horizontal"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="8dp">
+
+                <View
+                    android:layout_width="8dp"
+                    android:layout_height="8dp"
+                    android:layout_gravity="center_vertical"
+                    android:background="@drawable/bg_chip_dot_live" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="@string/brand_subtitle"
+                    android:textColor="@color/md_turquoise"
+                    android:textSize="13sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Auth card — tablet right pane -->
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.95">
+
+            <ScrollView
+                android:layout_width="480dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:fillViewport="true">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_frosted_card"
+                    android:orientation="vertical"
+                    android:padding="32dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="@font/titilliumweb_semibold"
+                        android:text="@string/login_panel_title"
+                        android:textColor="@color/md_primary"
+                        android:textSize="22sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="@string/invite_code_hint"
+                        android:textColor="@color/md_hint"
+                        android:textSize="14sp" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/invite_layout"
+                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="20dp"
+                        android:hint="@string/invite_code_hint"
+                        app:boxStrokeColor="@color/md_orange"
+                        app:hintTextColor="@color/md_hint">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/invite_code"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:imeOptions="actionDone"
+                            android:inputType="textCapCharacters"
+                            android:maxLines="1"
+                            android:textColor="@color/md_primary"
+                            android:textSize="18sp" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_continue"
+                        style="@style/Widget.Drone.Button"
+                        android:layout_width="match_parent"
+                        android:layout_height="58dp"
+                        android:layout_marginTop="16dp"
+                        android:text="@string/continue_label"
+                        android:textSize="16sp" />
+
+                    <LinearLayout
+                        android:id="@+id/district_panel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp"
+                        android:orientation="vertical"
+                        android:visibility="gone"
+                        tools:visibility="visible">
+
+                        <View
+                            android:layout_width="match_parent"
+                            android:layout_height="1dp"
+                            android:background="#22FFFFFF" />
+
+                        <TextView
+                            android:id="@+id/district_name"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="18dp"
+                            android:fontFamily="@font/titilliumweb_bold"
+                            android:textColor="@color/md_primary"
+                            android:textSize="22sp"
+                            tools:text="CGA District" />
+
+                        <TextView
+                            android:id="@+id/district_meta"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:textColor="@color/md_hint"
+                            android:textSize="15sp"
+                            tools:text="Gurgaon, GA" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_microsoft"
+                            style="@style/Widget.Drone.Button.Orange"
+                            android:layout_width="match_parent"
+                            android:layout_height="58dp"
+                            android:layout_marginTop="20dp"
+                            android:text="@string/sign_in_microsoft"
+                            android:textSize="16sp" />
+                    </LinearLayout>
+
+                    <ProgressBar
+                        android:id="@+id/progress"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_gravity="center_horizontal"
+                        android:layout_marginTop="24dp"
+                        android:indeterminateTint="@color/md_orange"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:id="@+id/error"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
+                        android:gravity="center"
+                        android:textColor="@color/md_red"
+                        android:visibility="gone" />
+                </LinearLayout>
+            </ScrollView>
+        </FrameLayout>
+    </LinearLayout>
+</FrameLayout>

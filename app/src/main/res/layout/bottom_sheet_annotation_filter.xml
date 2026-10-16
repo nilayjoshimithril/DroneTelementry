@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/md_secondary"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="@font/titilliumweb_bold"
+        android:text="@string/filter_annotations"
+        android:textColor="@color/md_primary"
+        android:textSize="20sp" />
+
+    <com.google.android.material.switchmaterial.SwitchMaterial
+        android:id="@+id/switch_labels"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="@string/show_labels"
+        android:textColor="@color/md_primary" />
+
+    <LinearLayout
+        android:id="@+id/filter_list"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="vertical"
+        tools:ignore="UselessLeaf" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_apply_filter"
+        style="@style/Widget.Drone.Button.Orange"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_marginTop="16dp"
+        android:text="@string/apply_filter" />
+</LinearLayout>

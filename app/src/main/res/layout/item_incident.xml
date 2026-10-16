@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/incident_card"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="8dp"
+    android:clickable="true"
+    android:focusable="true"
+    android:foreground="?attr/selectableItemBackground"
+    app:cardBackgroundColor="#14FFFFFF"
+    app:cardCornerRadius="16dp"
+    app:cardElevation="0dp"
+    app:strokeColor="@color/md_orange"
+    app:strokeWidth="1dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="18dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/status_chip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_chip"
+                android:fontFamily="@font/titilliumweb_semibold"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="4dp"
+                android:textColor="@color/md_orange"
+                android:textSize="11sp"
+                tools:text="Verification" />
+
+            <TextView
+                android:id="@+id/drill_chip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_chip"
+                android:fontFamily="@font/titilliumweb_semibold"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="4dp"
+                android:text="@string/drill_badge"
+                android:textColor="@color/md_lemon"
+                android:textSize="11sp"
+                android:visibility="gone"
+                tools:visibility="visible" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/drone_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/md_hint"
+                android:textSize="12sp"
+                tools:text="2 drones" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/campus_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:ellipsize="end"
+            android:fontFamily="@font/titilliumweb_bold"
+            android:maxLines="2"
+            android:textColor="@color/md_primary"
+            android:textSize="22sp"
+            tools:text="India Team Campus" />
+
+        <TextView
+            android:id="@+id/incident_meta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="@color/md_hint"
+            android:textSize="13sp"
+            tools:text="Campus #103 · VERIFICATION_PENDING" />
+
+        <TextView
+            android:id="@+id/incident_time"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="@color/md_turquoise"
+            android:textSize="13sp"
+            tools:text="10:22 AM" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_join"
+            style="@style/Widget.Drone.Button.Orange"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="16dp"
+            android:text="@string/join"
+            android:textSize="15sp" />
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

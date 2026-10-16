@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/md_secondary">
+
+    <ImageView
+        android:id="@+id/app_background"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no"
+        android:scaleType="centerCrop"
+        android:src="@drawable/app_background" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:paddingHorizontal="28dp"
+            android:paddingTop="48dp"
+            android:paddingBottom="40dp">
+
+            <ImageView
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:contentDescription="@string/brand_title"
+                android:src="@drawable/app_logo" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:fontFamily="@font/titilliumweb_bold"
+                android:letterSpacing="0.04"
+                android:text="@string/login_hero_title"
+                android:textAllCaps="true"
+                android:textColor="@color/md_primary"
+                android:textSize="28sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center"
+                android:lineSpacingExtra="3dp"
+                android:text="@string/login_hero_body"
+                android:textColor="@color/md_hint"
+                android:textSize="15sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="36dp"
+                android:background="@drawable/bg_frosted_card"
+                android:orientation="vertical"
+                android:padding="24dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="@font/titilliumweb_semibold"
+                    android:text="@string/login_panel_title"
+                    android:textColor="@color/md_primary"
+                    android:textSize="18sp" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/invite_layout"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:hint="@string/invite_code_hint"
+                    app:boxStrokeColor="@color/md_orange"
+                    app:hintTextColor="@color/md_hint">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/invite_code"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:imeOptions="actionDone"
+                        android:inputType="textCapCharacters"
+                        android:maxLines="1"
+                        android:textColor="@color/md_primary"
+                        android:textColorHint="@color/md_hint" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_continue"
+                    style="@style/Widget.Drone.Button"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/continue_label" />
+
+                <LinearLayout
+                    android:id="@+id/district_panel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:orientation="vertical"
+                    android:visibility="gone"
+                    tools:visibility="visible">
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#22FFFFFF" />
+
+                    <TextView
+                        android:id="@+id/district_name"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:fontFamily="@font/titilliumweb_bold"
+                        android:textColor="@color/md_primary"
+                        android:textSize="20sp"
+                        tools:text="CGA District" />
+
+                    <TextView
+                        android:id="@+id/district_meta"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:textColor="@color/md_hint"
+                        android:textSize="14sp"
+                        tools:text="Gurgaon, GA" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_microsoft"
+                        style="@style/Widget.Drone.Button.Orange"
+                        android:layout_width="match_parent"
+                        android:layout_height="56dp"
+                        android:layout_marginTop="18dp"
+                        android:text="@string/sign_in_microsoft" />
+                </LinearLayout>
+
+                <ProgressBar
+                    android:id="@+id/progress"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="20dp"
+                    android:indeterminateTint="@color/md_orange"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/error"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center"
+                    android:textColor="@color/md_red"
+                    android:visibility="gone" />
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+</FrameLayout>

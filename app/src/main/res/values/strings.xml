@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Drone Telemetry</string>
+    <string name="invite_code_hint">Invite code</string>
+    <string name="continue_label">Continue</string>
+    <string name="sign_in_microsoft">Sign in with Microsoft</string>
+    <string name="ongoing_incidents">Active Alert</string>
+    <string name="home_subtitle">Join an incident to track live drone position on the campus map</string>
+    <string name="join">Join map</string>
+    <string name="joining">Joining…</string>
+    <string name="refresh">Refresh</string>
+    <string name="logout">Log out</string>
+    <string name="no_incidents">No ongoing incidents right now</string>
+    <string name="loading">Loading…</string>
+    <string name="leave_session">Leave</string>
+    <string name="drones">Drones</string>
+    <string name="brand_title">Mithril Defense</string>
+    <string name="brand_subtitle">Pilot drone console</string>
+    <string name="login_hero_title">Pilot console</string>
+    <string name="login_hero_body">Sign in to monitor campus incidents and live drone telemetry on the mosaic map.</string>
+    <string name="login_panel_title">Secure access</string>
+    <string name="select_building">Select Building</string>
+    <string name="map_view">Map View</string>
+    <string name="floor">Floor</string>
+    <string name="buildings">Buildings</string>
+    <string name="back">Back</string>
+    <string name="map_unavailable_title">Map is Unavailable</string>
+    <string name="map_unavailable_body">This campus does not have a floor plan published yet. Return to missions and try another campus, or check back once the map is ready.</string>
+    <string name="map_unavailable_cta">Back to missions</string>
+    <string name="filter_annotations">Filter annotations</string>
+    <string name="show_labels">Show labels</string>
+    <string name="apply_filter">Apply</string>
+    <string name="status_verification">Verification</string>
+    <string name="status_lockdown">Lockdown</string>
+    <string name="drill_badge">DRILL</string>
+    <plurals name="floor_count">
+        <item quantity="one">%d floor</item>
+        <item quantity="other">%d floors</item>
+    </plurals>
+    <plurals name="drone_count">
+        <item quantity="one">%d drone</item>
+        <item quantity="other">%d drones</item>
+    </plurals>
+    <string name="drone_details">Selected drone</string>
+    <string name="drone_heading">Heading</string>
+    <string name="drone_altitude">Altitude</string>
+    <string name="drone_confidence">Confidence</string>
+    <string name="drone_pose_age">Pose age</string>
+    <string name="drone_systems">Systems</string>
+    <string name="drone_select_hint">Tap a drone on the map or list to expand details</string>
+    <string name="drone_status_unknown">—</string>
+</resources>

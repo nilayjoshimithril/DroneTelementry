@@ -1,0 +1,348 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/drone_card"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp"
+    android:background="@drawable/bg_frosted_card"
+    android:clipChildren="false"
+    android:clipToPadding="false"
+    android:orientation="vertical"
+    android:paddingBottom="2dp">
+
+    <LinearLayout
+        android:id="@+id/drone_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="10dp">
+
+        <View
+            android:id="@+id/battery_dot"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:background="@drawable/bg_chip_dot_live" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/drone_id"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="@font/titilliumweb_semibold"
+                android:maxLines="1"
+                android:textColor="@color/md_primary"
+                android:textSize="14sp"
+                tools:text="118.001" />
+
+            <TextView
+                android:id="@+id/drone_meta"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/md_hint"
+                android:textSize="11sp"
+                tools:text="ACTIVE · Motor OK" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/drone_battery"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/titilliumweb_bold"
+            android:textColor="@color/md_green"
+            android:textSize="13sp"
+            tools:text="80%" />
+
+        <ImageView
+            android:id="@+id/expand_chevron"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginStart="6dp"
+            android:contentDescription="@null"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_expand_chevron" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/drone_detail_panel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="12dp"
+        android:paddingBottom="12dp"
+        android:visibility="gone"
+        tools:visibility="visible">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginBottom="10dp"
+            android:background="#22FFFFFF" />
+
+        <TextView
+            android:id="@+id/detail_state"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_status_pill_ok"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="4dp"
+            android:textColor="@color/md_green"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            tools:text="ACTIVE" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ProgressBar
+                android:id="@+id/detail_battery_bar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="0dp"
+                android:layout_height="8dp"
+                android:layout_weight="1"
+                android:max="100"
+                android:progress="80"
+                android:progressBackgroundTint="#33FFFFFF"
+                android:progressTint="@color/md_green" />
+
+            <TextView
+                android:id="@+id/detail_battery_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:fontFamily="@font/titilliumweb_semibold"
+                android:textColor="@color/md_primary"
+                android:textSize="12sp"
+                tools:text="80%" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:paddingEnd="6dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/drone_heading"
+                    android:textColor="@color/md_hint"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/detail_heading"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:ellipsize="end"
+                    android:fontFamily="@font/titilliumweb_semibold"
+                    android:maxLines="1"
+                    android:textColor="@color/md_primary"
+                    android:textSize="15sp"
+                    tools:text="142°" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:paddingStart="6dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/drone_altitude"
+                    android:textColor="@color/md_hint"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/detail_altitude"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:ellipsize="end"
+                    android:fontFamily="@font/titilliumweb_semibold"
+                    android:maxLines="1"
+                    android:textColor="@color/md_primary"
+                    android:textSize="15sp"
+                    tools:text="1.7 m" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:paddingEnd="6dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/drone_confidence"
+                    android:textColor="@color/md_hint"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/detail_confidence"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:ellipsize="end"
+                    android:fontFamily="@font/titilliumweb_semibold"
+                    android:maxLines="1"
+                    android:textColor="@color/md_primary"
+                    android:textSize="15sp"
+                    tools:text="68%" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:paddingStart="6dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/drone_pose_age"
+                    android:textColor="@color/md_hint"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:id="@+id/detail_pose_age"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:ellipsize="end"
+                    android:fontFamily="@font/titilliumweb_semibold"
+                    android:maxLines="1"
+                    android:textColor="@color/md_primary"
+                    android:textSize="15sp"
+                    tools:text="0.2s" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:letterSpacing="0.08"
+            android:text="@string/drone_systems"
+            android:textAllCaps="true"
+            android:textColor="@color/md_hint"
+            android:textSize="11sp" />
+
+        <!-- Vertical status rows so labels are never clipped in the narrow side panel -->
+        <TextView
+            android:id="@+id/detail_motor"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_status_pill_neutral"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="7dp"
+            android:textColor="@color/md_primary"
+            android:textSize="12sp"
+            tools:text="Motor —" />
+
+        <TextView
+            android:id="@+id/detail_esc"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_status_pill_neutral"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="7dp"
+            android:textColor="@color/md_primary"
+            android:textSize="12sp"
+            tools:text="ESC —" />
+
+        <TextView
+            android:id="@+id/detail_battery_unit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_status_pill_neutral"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="7dp"
+            android:textColor="@color/md_primary"
+            android:textSize="12sp"
+            tools:text="Batt —" />
+
+        <TextView
+            android:id="@+id/detail_link"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_status_pill_neutral"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="7dp"
+            android:textColor="@color/md_primary"
+            android:textSize="12sp"
+            tools:text="Link —" />
+
+        <TextView
+            android:id="@+id/detail_sensors"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:lineSpacingExtra="2dp"
+            android:textColor="@color/md_hint"
+            android:textSize="11sp"
+            tools:text="Gyro OK · Acc OK · Baro —" />
+
+        <TextView
+            android:id="@+id/detail_ip"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/md_hint"
+            android:textSize="11sp"
+            tools:text="127.0.0.1" />
+    </LinearLayout>
+</LinearLayout>
