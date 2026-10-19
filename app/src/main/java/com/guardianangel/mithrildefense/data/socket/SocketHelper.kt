@@ -1,8 +1,12 @@
 package com.guardianangel.mithrildefense.data.socket
 
 import com.guardianangel.mithrildefense.config.AppConfig
+import com.guardianangel.mithrildefense.data.model.ColorPathwayDto
+import com.guardianangel.mithrildefense.data.model.ColorPathwayRemovedDto
 import com.guardianangel.mithrildefense.data.model.DroneTelemetryDto
+import com.guardianangel.mithrildefense.data.model.SessionDetailDto
 import com.guardianangel.mithrildefense.data.model.SocketEnvelopeDto
+import com.guardianangel.mithrildefense.data.model.ThreatDto
 import com.guardianangel.mithrildefense.domain.model.DroneTelemetry
 import com.guardianangel.mithrildefense.utils.AppLog
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +21,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -36,6 +41,8 @@ sealed interface SocketEvent {
     data class Channel(val name: String, val rawPayload: String?) : SocketEvent
     data object Disconnected : SocketEvent
     data object Reconnecting : SocketEvent
+    /** A threat id seen for the first time via `threat-added` (not session-detail sync). */
+    data class ThreatIdentified(val threatId: String) : SocketEvent
 }
 
 /**
@@ -68,6 +75,14 @@ class SocketHelper(
 
     private val _drones = MutableStateFlow<Map<String, DroneTelemetry>>(emptyMap())
     val drones: StateFlow<Map<String, DroneTelemetry>> = _drones.asStateFlow()
+
+    /** Active threats keyed by threat_id, in arrival order (Mithril sorts by timestamp). */
+    private val _threats = MutableStateFlow<Map<String, ThreatDto>>(emptyMap())
+    val threats: StateFlow<Map<String, ThreatDto>> = _threats.asStateFlow()
+
+    /** Active color pathways keyed by spline_id. */
+    private val _colorPathways = MutableStateFlow<Map<String, ColorPathwayDto>>(emptyMap())
+    val colorPathways: StateFlow<Map<String, ColorPathwayDto>> = _colorPathways.asStateFlow()
 
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
@@ -106,6 +121,8 @@ class SocketHelper(
         closeQuietly()
         _connected.value = false
         _drones.value = emptyMap()
+        _threats.value = emptyMap()
+        _colorPathways.value = emptyMap()
     }
 
     fun publish(channel: String, payloadJson: String) {
@@ -241,12 +258,80 @@ class SocketHelper(
             "on-drone-telemetry" -> {
                 parseTelemetry(envelope)
             }
+            "on-session-detail" -> {
+                sendAck(envelope.id)
+                parseSessionDetail(envelope)
+            }
+            "threat-added" -> {
+                sendAck(envelope.id)
+                val threat = decodePayload<ThreatDto>(envelope) ?: return
+                if (threat.threatId.isBlank()) return
+                var isNew = false
+                _threats.update { current ->
+                    isNew = threat.threatId !in current
+                    sortedByTimestamp(current + (threat.threatId to threat))
+                }
+                AppLog.i(TAG, "channel=threat-added id=${threat.threatId} new=$isNew")
+                if (isNew) _events.emit(SocketEvent.ThreatIdentified(threat.threatId))
+            }
+            "threat-removed" -> {
+                sendAck(envelope.id)
+                val threat = decodePayload<ThreatDto>(envelope) ?: return
+                AppLog.i(TAG, "channel=threat-removed id=${threat.threatId}")
+                _threats.update { it - threat.threatId }
+            }
+            "color-pathway-added" -> {
+                sendAck(envelope.id)
+                val pathway = decodePayload<ColorPathwayDto>(envelope) ?: return
+                val id = pathway.splineId?.takeIf { it.isNotBlank() } ?: return
+                AppLog.i(TAG, "channel=color-pathway-added id=$id points=${pathway.splinePoints?.size}")
+                _colorPathways.update { it + (id to pathway) }
+            }
+            "color-pathway-removed" -> {
+                sendAck(envelope.id)
+                val id = decodePayload<ColorPathwayRemovedDto>(envelope)?.splineId ?: return
+                AppLog.i(TAG, "channel=color-pathway-removed id=$id")
+                _colorPathways.update { it - id }
+            }
             else -> {
                 AppLog.d(TAG, "channel=$channel payload=${envelope.payload?.toString()?.take(300)}")
                 _events.emit(SocketEvent.Channel(channel, envelope.payload?.toString()))
             }
         }
     }
+
+    /** Mithril acks reliable channels so the server stops redelivering them. */
+    private fun sendAck(id: String?) {
+        if (id.isNullOrBlank()) return
+        publish("ack", """{"id":"$id"}""")
+    }
+
+    private inline fun <reified T> decodePayload(envelope: SocketEnvelopeDto): T? {
+        val payload = envelope.payload ?: return null
+        return runCatching { json.decodeFromJsonElement<T>(payload) }.getOrElse {
+            AppLog.w(TAG, "Failed to parse ${envelope.channel}: ${payload.toString().take(300)}", it)
+            null
+        }
+    }
+
+    /** Session detail is a full snapshot — replaces threats + pathways wholesale. */
+    private fun parseSessionDetail(envelope: SocketEnvelopeDto) {
+        val detail = decodePayload<SessionDetailDto>(envelope) ?: return
+        val threats = detail.threats.orEmpty().filter { it.threatId.isNotBlank() }
+        val pathways = detail.colorPathways.orEmpty().filter { !it.splineId.isNullOrBlank() }
+        AppLog.i(
+            TAG,
+            "channel=on-session-detail status=${detail.incidentStatus} " +
+                "threats=${threats.size} pathways=${pathways.size}",
+        )
+        _threats.value = sortedByTimestamp(threats.associateBy { it.threatId })
+        _colorPathways.value = pathways.associateBy { it.splineId.orEmpty() }
+    }
+
+    private fun sortedByTimestamp(threats: Map<String, ThreatDto>): Map<String, ThreatDto> =
+        threats.values
+            .sortedBy { it.timestamp.orEmpty() }
+            .associateByTo(LinkedHashMap()) { it.threatId }
 
     private fun parseTelemetry(envelope: SocketEnvelopeDto) {
         val payload = envelope.payload ?: return

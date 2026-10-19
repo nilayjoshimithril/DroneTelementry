@@ -220,6 +220,63 @@
             android:text="@string/leave_session" />
     </LinearLayout>
 
+    <!-- Mithril MapThreatOverlay: "Nth Threat Identified" — tap to locate, X to hide. -->
+    <LinearLayout
+        android:id="@+id/threat_banner"
+        android:layout_width="0dp"
+        android:layout_height="48dp"
+        android:layout_marginHorizontal="12dp"
+        android:background="@drawable/bg_threat_banner"
+        android:clickable="true"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="8dp"
+        android:visibility="gone"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/map_chrome"
+        tools:visibility="visible">
+
+        <ImageView
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_threat_marker" />
+
+        <TextView
+            android:id="@+id/threat_banner_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:fontFamily="@font/titilliumweb_bold"
+            android:maxLines="1"
+            android:textColor="@color/white"
+            android:textSize="16sp"
+            tools:text="1st Threat Identified" />
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:contentDescription="@null"
+            android:rotation="-90"
+            android:src="@drawable/ic_expand_chevron"
+            app:tint="@color/white" />
+
+        <ImageButton
+            android:id="@+id/threat_banner_dismiss"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/threat_banner_dismiss"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            app:tint="@color/md_hint" />
+    </LinearLayout>
+
     <ProgressBar
         android:id="@+id/progress"
         android:layout_width="48dp"

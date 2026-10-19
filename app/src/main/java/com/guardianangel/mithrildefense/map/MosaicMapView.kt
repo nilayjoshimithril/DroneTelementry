@@ -49,7 +49,7 @@ data class MapAnnotationMarker(
 
 /**
  * Mosaic floor-plan: low-res overview first, hi-res tiles after zoom (Mithril LOD),
- * plus annotations + drone markers.
+ * plus color pathways, annotations, threat markers + drone markers.
  */
 class MosaicMapView @JvmOverloads constructor(
     context: Context,
@@ -89,6 +89,13 @@ class MosaicMapView @JvmOverloads constructor(
     private var selectedDroneId: String? = null
     @Volatile
     private var annotations: List<MapAnnotationMarker> = emptyList()
+    @Volatile
+    private var pathways: List<Pair<PathwayRender, Path>> = emptyList()
+    @Volatile
+    private var threats: List<ThreatMarker> = emptyList()
+    /** World-pixel point to center on once the pending [fitToView] has run. */
+    private var pendingFocus: PointF? = null
+    private var fitPending = false
 
     var onDroneTapped: ((String) -> Unit)? = null
 
@@ -124,6 +131,20 @@ class MosaicMapView @JvmOverloads constructor(
         setShadowLayer(4f, 0f, 1f, Color.BLACK)
     }
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val pathwayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val threatLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        isFakeBoldText = true
+        textAlign = Paint.Align.CENTER
+    }
+    private val threatLabelBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#99000000")
+    }
+    private val threatLabelRect = RectF()
     private val iconCache = ConcurrentHashMap<Int, Bitmap>()
     private val headingArcRect = RectF()
     private val droneBodyRect = RectF()
@@ -165,6 +186,8 @@ class MosaicMapView @JvmOverloads constructor(
         )
         clearTiles()
         clearOverview()
+        pendingFocus = null
+        fitPending = true
         if (hasOverview) {
             loadOverview(this.overviewUrl!!)
         } else {
@@ -189,6 +212,41 @@ class MosaicMapView @JvmOverloads constructor(
     fun updateAnnotations(markers: List<MapAnnotationMarker>) {
         annotations = markers
         AppLog.d(logTag, "annotations on map count=${markers.size}")
+        invalidate()
+    }
+
+    fun updateOverlays(pathwayList: List<PathwayRender>, threatList: List<ThreatMarker>) {
+        // Paths are rebuilt only when overlays change, not every drone animation frame.
+        pathways = pathwayList.map { render ->
+            val path = Path()
+            val pts = render.points
+            if (pts.size >= 4) {
+                path.moveTo(pts[0], pts[1])
+                var i = 2
+                while (i + 1 < pts.size) {
+                    path.lineTo(pts[i], pts[i + 1])
+                    i += 2
+                }
+            }
+            render to path
+        }
+        threats = threatList
+        invalidate()
+    }
+
+    /** Center (and zoom in if at fit) on a world-pixel point — Mithril locate threat. */
+    fun focusOn(pixelX: Float, pixelY: Float) {
+        pendingFocus = PointF(pixelX, pixelY)
+        if (!fitPending && width > 0 && height > 0) applyPendingFocus()
+    }
+
+    private fun applyPendingFocus() {
+        val target = pendingFocus ?: return
+        pendingFocus = null
+        scale = scale.coerceAtLeast(minScale * FOCUS_ZOOM_MULTIPLIER).coerceAtMost(8f)
+        transX = width / 2f - target.x * scale
+        transY = height / 2f - target.y * scale
+        requestTilesIfNeeded()
         invalidate()
     }
 
@@ -281,6 +339,7 @@ class MosaicMapView @JvmOverloads constructor(
 
     private fun fitToView() {
         if (width == 0 || height == 0) return
+        fitPending = false
         val sx = width / worldWidth
         val sy = height / worldHeight
         scale = min(sx, sy) * 0.95f
@@ -290,6 +349,7 @@ class MosaicMapView @JvmOverloads constructor(
         invalidate()
         // Stay on overview at fit; tiles load after zoom-in.
         requestTilesIfNeeded(force = !hasOverview)
+        applyPendingFocus()
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -318,9 +378,53 @@ class MosaicMapView @JvmOverloads constructor(
             }
         }
 
+        // Pathways under markers; clipped so splines past the mosaic edge don't bleed out.
+        if (pathways.isNotEmpty()) {
+            canvas.save()
+            canvas.clipRect(0f, 0f, worldWidth, worldHeight)
+            pathways.forEach { (render, path) -> drawPathway(canvas, render, path) }
+            canvas.restore()
+        }
         annotations.forEach { marker -> drawAnnotation(canvas, marker) }
+        threats.forEach { threat -> drawThreat(canvas, threat) }
         dronePoses.values.forEach { pose -> drawDrone(canvas, pose) }
         canvas.restore()
+    }
+
+    private fun drawPathway(canvas: Canvas, render: PathwayRender, path: Path) {
+        if (render.points.size < 4) return
+        pathwayPaint.color = render.colorArgb
+        // Mithril: thickness * unrealToPixels in world px, never thinner than 4 screen px.
+        pathwayPaint.strokeWidth = render.strokeWorldPx.coerceAtLeast(4f / scale)
+        canvas.drawPath(path, pathwayPaint)
+    }
+
+    private fun drawThreat(canvas: Canvas, threat: ThreatMarker) {
+        val inv = 1f / scale.coerceAtLeast(0.35f)
+        val half = 24f * inv
+        iconBitmap(R.drawable.ic_threat_marker)?.let { bmp ->
+            droneBodyRect.set(
+                threat.pixelX - half,
+                threat.pixelY - half,
+                threat.pixelX + half,
+                threat.pixelY + half,
+            )
+            canvas.drawBitmap(bmp, null, droneBodyRect, iconPaint)
+        }
+        // Mithril always labels threats (other annotations are zoom-gated).
+        if (threat.label.isBlank()) return
+        threatLabelPaint.textSize = 16f * inv
+        val textWidth = threatLabelPaint.measureText(threat.label)
+        val top = threat.pixelY + half + 4f * inv
+        val bottom = top + threatLabelPaint.textSize + 6f * inv
+        threatLabelRect.set(
+            threat.pixelX - textWidth / 2f - 4f * inv,
+            top,
+            threat.pixelX + textWidth / 2f + 4f * inv,
+            bottom,
+        )
+        canvas.drawRoundRect(threatLabelRect, 3f * inv, 3f * inv, threatLabelBgPaint)
+        canvas.drawText(threat.label, threat.pixelX, bottom - 5f * inv, threatLabelPaint)
     }
 
     private fun drawAnnotation(canvas: Canvas, marker: MapAnnotationMarker) {
@@ -554,5 +658,7 @@ class MosaicMapView @JvmOverloads constructor(
     companion object {
         /** Mithril: fetch/draw tiles once zoomed past fit * 1.35. */
         private const val TILE_LOAD_SCALE_MULTIPLIER = 1.35f
+        /** Locate threat zooms to at least fit * 2.5 so the marker's surroundings are readable. */
+        private const val FOCUS_ZOOM_MULTIPLIER = 2.5f
     }
 }

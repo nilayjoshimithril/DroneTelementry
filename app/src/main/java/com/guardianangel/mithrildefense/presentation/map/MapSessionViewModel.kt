@@ -12,12 +12,16 @@ import com.guardianangel.mithrildefense.data.socket.SocketHelper
 import com.guardianangel.mithrildefense.domain.interact.MapInteract
 import com.guardianangel.mithrildefense.domain.model.DroneMapPose
 import com.guardianangel.mithrildefense.domain.model.DroneTelemetry
+import com.guardianangel.mithrildefense.map.ColorPathway
 import com.guardianangel.mithrildefense.map.FloorPlanTransform
 import com.guardianangel.mithrildefense.map.GeoProjector
 import com.guardianangel.mithrildefense.map.METERS_PER_FLOOR
+import com.guardianangel.mithrildefense.map.MapThreat
 import com.guardianangel.mithrildefense.map.OUTDOOR_BUILDING_ID
 import com.guardianangel.mithrildefense.map.OUTDOOR_FLOOR_ID
+import com.guardianangel.mithrildefense.map.PathwayRender
 import com.guardianangel.mithrildefense.map.PointF
+import com.guardianangel.mithrildefense.map.ThreatMarker
 import com.guardianangel.mithrildefense.map.buildingPickerItems
 import com.guardianangel.mithrildefense.map.campusLatLng
 import com.guardianangel.mithrildefense.map.createCampusGeoProjector
@@ -25,6 +29,7 @@ import com.guardianangel.mithrildefense.map.findBuilding
 import com.guardianangel.mithrildefense.map.findMapLayer
 import com.guardianangel.mithrildefense.map.floorsForBuilding
 import com.guardianangel.mithrildefense.map.floorsReferToSame
+import com.guardianangel.mithrildefense.map.isVisibleOnLayer
 import com.guardianangel.mithrildefense.map.layerCols
 import com.guardianangel.mithrildefense.map.layerOverviewUrl
 import com.guardianangel.mithrildefense.map.layerRows
@@ -36,6 +41,9 @@ import com.guardianangel.mithrildefense.map.normalizedForMapConfig
 import com.guardianangel.mithrildefense.map.outdoorTransform
 import com.guardianangel.mithrildefense.map.resolveDroneMapPlacement
 import com.guardianangel.mithrildefense.map.shouldShowDroneOnLayer
+import com.guardianangel.mithrildefense.map.toColorPathway
+import com.guardianangel.mithrildefense.map.toMapThreat
+import com.guardianangel.mithrildefense.map.toRender
 import com.guardianangel.mithrildefense.map.toTransform
 import com.guardianangel.mithrildefense.map.unrealFromFloorPlanPixel
 import com.guardianangel.mithrildefense.map.unrealToFloorPlanPixel
@@ -43,7 +51,9 @@ import com.guardianangel.mithrildefense.utils.AppLog
 import android.os.SystemClock
 import android.view.Choreographer
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -99,6 +109,28 @@ data class MapSessionUiState(
     val selectedFloorLabel: String = OUTDOOR_FLOOR_ID,
     val mosaic: MosaicLayerConfig? = null,
     val selectedDroneId: String? = null,
+    /** Mithril MapThreatOverlay — "Nth Threat Identified", auto-hides after a few seconds. */
+    val threatBanner: ThreatBannerUi? = null,
+    /** One-shot request to center the map on a world-pixel point (e.g. locate threat). */
+    val mapFocus: MapFocus? = null,
+)
+
+data class ThreatBannerUi(
+    val threatCount: Int,
+    val threatId: String,
+)
+
+data class MapFocus(
+    val layerKey: String,
+    val pixelX: Float,
+    val pixelY: Float,
+    val nonce: Long,
+)
+
+/** Color pathways + threat markers projected onto the active layer. */
+data class MapOverlays(
+    val pathways: List<PathwayRender> = emptyList(),
+    val threats: List<ThreatMarker> = emptyList(),
 )
 
 @OptIn(FlowPreview::class)
@@ -118,6 +150,9 @@ class MapSessionViewModel(
     /** High-frequency poses (demo + live) — collected separately so map chrome does not rebuild each frame. */
     private val _drones = MutableStateFlow<Map<String, DroneMapPose>>(emptyMap())
     val drones: StateFlow<Map<String, DroneMapPose>> = _drones.asStateFlow()
+
+    private val _overlays = MutableStateFlow(MapOverlays())
+    val overlays: StateFlow<MapOverlays> = _overlays.asStateFlow()
 
     private val _focusDrone = MutableSharedFlow<String>(
         extraBufferCapacity = 1,
@@ -143,6 +178,10 @@ class MapSessionViewModel(
     private var demoAngleDeg = 0.0
     private var demoLastFrameMs = 0L
     private var lastFollowedPlacementKey: String? = null
+    private var activeThreats: List<MapThreat> = emptyList()
+    private var colorPathways: List<ColorPathway> = emptyList()
+    private var threatBannerJob: Job? = null
+    private var focusNonce = 0L
 
     init {
         AppLog.i(
@@ -173,6 +212,7 @@ class MapSessionViewModel(
                         _state.update { it.copy(statusMessage = "Reconnecting…", socketConnected = false) }
                     is SocketEvent.Failed ->
                         _state.update { it.copy(statusMessage = "Reconnecting… (${event.reason})") }
+                    is SocketEvent.ThreatIdentified -> showThreatBanner(event.threatId)
                     else -> Unit
                 }
             }
@@ -186,6 +226,24 @@ class MapSessionViewModel(
                 }
                 publishDrones()
                 followSelectedDroneIfNeeded()
+            }
+        }
+        viewModelScope.launch {
+            socketHelper.threats.collect { threats ->
+                activeThreats = threats.values.map { it.toMapThreat(mapConfig, campusId) }
+                AppLog.d(TAG, "threats=${activeThreats.map { "${it.id}@${it.buildingId}/${it.floorId}" }}")
+                val banner = _state.value.threatBanner
+                if (banner != null && activeThreats.none { it.id == banner.threatId }) {
+                    dismissThreatBanner()
+                }
+                publishOverlays()
+            }
+        }
+        viewModelScope.launch {
+            socketHelper.colorPathways.collect { pathways ->
+                colorPathways = pathways.values.mapNotNull { it.toColorPathway(mapConfig, campusId) }
+                AppLog.d(TAG, "colorPathways=${colorPathways.map { "${it.id}:${it.points.size}pts" }}")
+                publishOverlays()
             }
         }
     }
@@ -397,6 +455,67 @@ class MapSessionViewModel(
             )
         }
         publishDrones()
+        publishOverlays()
+    }
+
+    /** Pathways draw on every layer (Mithril floor guard disabled); threats filter by floor. */
+    private fun publishOverlays() {
+        val xf = transform
+        if (xf == null) {
+            _overlays.value = MapOverlays()
+            return
+        }
+        val ui = _state.value
+        val pathways = colorPathways
+            .filter { it.isVisibleOnLayer() }
+            .map { it.toRender(xf) }
+        val threats = activeThreats
+            .filter { it.isVisibleOnLayer(mapConfig, ui.selectedBuildingId, ui.selectedFloorId) }
+            .map { threat ->
+                val pixel = unrealToFloorPlanPixel(PointF(threat.unrealX, threat.unrealY), xf)
+                ThreatMarker(id = threat.id, label = threat.name, pixelX = pixel.x, pixelY = pixel.y)
+            }
+        _overlays.value = MapOverlays(pathways = pathways, threats = threats)
+    }
+
+    private fun showThreatBanner(threatId: String) {
+        val count = socketHelper.threats.value.size
+        AppLog.i(TAG, "Threat identified id=$threatId count=$count")
+        _state.update { it.copy(threatBanner = ThreatBannerUi(threatCount = count, threatId = threatId)) }
+        threatBannerJob?.cancel()
+        threatBannerJob = viewModelScope.launch {
+            delay(THREAT_BANNER_DURATION_MS)
+            _state.update { it.copy(threatBanner = null) }
+        }
+    }
+
+    /** Clears the one-shot focus so it is not replayed after rotation / re-collection. */
+    fun onMapFocusApplied(nonce: Long) {
+        _state.update { if (it.mapFocus?.nonce == nonce) it.copy(mapFocus = null) else it }
+    }
+
+    fun dismissThreatBanner() {
+        threatBannerJob?.cancel()
+        threatBannerJob = null
+        _state.update { it.copy(threatBanner = null) }
+    }
+
+    /**
+     * Mithril performLocateThreat: jump to the threat's outdoor/building floor and center on it.
+     * Drops drone follow first, otherwise the next telemetry tick would switch layers back.
+     */
+    fun locateThreat(threatId: String? = _state.value.threatBanner?.threatId) {
+        val threat = activeThreats.find { it.id == threatId } ?: activeThreats.lastOrNull() ?: return
+        AppLog.i(TAG, "locateThreat id=${threat.id} → ${threat.buildingId} | ${threat.floorId}")
+        lastFollowedPlacementKey = null
+        _state.update { it.copy(selectedDroneId = null) }
+        switchMapState(threat.buildingId, threat.floorId)
+        val xf = transform ?: return
+        val layerKey = _state.value.mosaic?.layerKey ?: return
+        val pixel = unrealToFloorPlanPixel(PointF(threat.unrealX, threat.unrealY), xf)
+        _state.update {
+            it.copy(mapFocus = MapFocus(layerKey, pixel.x, pixel.y, nonce = ++focusNonce))
+        }
     }
 
     /**
@@ -678,6 +797,8 @@ class MapSessionViewModel(
         private const val DEMO_ORBIT_DEG_PER_SEC = 30.0
         /** Seconds on each outdoor/floor stop before advancing the demo itinerary. */
         private const val DEMO_FLOOR_DWELL_MS = 8_000L
+        /** Mithril MapViewModel.onThreatAdded hides the overlay after 5 s. */
+        private const val THREAT_BANNER_DURATION_MS = 5_000L
     }
 }
 

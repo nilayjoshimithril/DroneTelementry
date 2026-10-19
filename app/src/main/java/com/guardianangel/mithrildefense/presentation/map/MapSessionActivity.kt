@@ -15,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.SimpleItemAnimator
+import com.guardianangel.mithrildefense.R
 import com.guardianangel.mithrildefense.data.remote.SessionEvents
 import com.guardianangel.mithrildefense.databinding.ActivityMapSessionBinding
 import com.guardianangel.mithrildefense.domain.model.DroneMapPose
@@ -75,6 +76,12 @@ class MapSessionActivity : AppCompatActivity() {
             val floors = viewModel.state.value.floors
             floors.getOrNull(position)?.let { viewModel.selectFloor(it.id) }
         }
+
+        binding.threatBanner.setOnClickListener {
+            viewModel.locateThreat()
+            viewModel.dismissThreatBanner()
+        }
+        binding.threatBannerDismiss.setOnClickListener { viewModel.dismissThreatBanner() }
 
         binding.btnLeave.setOnClickListener { leaveToHome() }
         binding.btnBack.setOnClickListener { leaveToHome() }
@@ -137,7 +144,28 @@ class MapSessionActivity : AppCompatActivity() {
                                 }
                             }
                             binding.mosaicMap.updateAnnotations(emptyList())
+                            // After configure() so focus waits for the new layer's fit.
+                            state.mapFocus?.let { focus ->
+                                if (focus.layerKey == appliedLayerKey) {
+                                    binding.mosaicMap.focusOn(focus.pixelX, focus.pixelY)
+                                    viewModel.onMapFocusApplied(focus.nonce)
+                                }
+                            }
                         }
+
+                        val banner = state.threatBanner
+                        binding.threatBanner.isVisible = showMap && banner != null
+                        if (banner != null) {
+                            binding.threatBannerText.text = getString(
+                                R.string.threat_banner_text,
+                                ordinal(banner.threatCount),
+                            )
+                        }
+                    }
+                }
+                launch {
+                    viewModel.overlays.collect { overlays ->
+                        binding.mosaicMap.updateOverlays(overlays.pathways, overlays.threats)
                     }
                 }
                 launch {
@@ -215,6 +243,18 @@ class MapSessionActivity : AppCompatActivity() {
                 binding.droneList.smoothScrollToPosition(index)
             }
         }
+    }
+
+    /** Mithril ThreatBanner ordinal: 1st, 2nd, 3rd, 11th… */
+    private fun ordinal(n: Int): String {
+        val suffix = when {
+            n % 100 in 11..13 -> "th"
+            n % 10 == 1 -> "st"
+            n % 10 == 2 -> "nd"
+            n % 10 == 3 -> "rd"
+            else -> "th"
+        }
+        return "$n$suffix"
     }
 
     private fun leaveToHome() {
