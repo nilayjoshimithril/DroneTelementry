@@ -119,19 +119,58 @@ class AuthInteract(
         }
     }
 
+    /**
+     * Every campus of [districtId] — `campuses` is paginated (Mithril passes page/limit), so a
+     * single call only returned the first page and dropped campuses such as later ones in the
+     * list. Rows from another district are filtered out.
+     */
     suspend fun loadCampuses(districtId: String): List<CampusDto> {
-        AppLog.i(TAG, "API GET campuses?district_id=$districtId")
-        val response = api.getCampuses(districtId)
-        val campuses = response.data?.campuses.orEmpty()
-        AppLog.d(
-            TAG,
-            "campuses error=${response.error} message=${response.message} count=${campuses.size}",
-        )
-        if (response.error == true) {
-            throw IllegalStateException(response.message ?: "Failed to load campuses")
-        }
+        val all = mutableListOf<CampusDto>()
+        var page = 1
+        var totalPages: Int
+        do {
+            AppLog.i(TAG, "API GET campuses?district_id=$districtId&page=$page&limit=$CAMPUS_PAGE_SIZE")
+            val response = api.getCampuses(districtId, page = page, limit = CAMPUS_PAGE_SIZE)
+            if (response.error == true) {
+                throw IllegalStateException(response.message ?: "Failed to load campuses")
+            }
+            val chunk = response.data?.campuses.orEmpty()
+            all += chunk
+            val meta = response.data?.meta
+            val limit = meta?.limit?.takeIf { it > 0 } ?: CAMPUS_PAGE_SIZE
+            val total = meta?.total ?: all.size
+            val currentPage = meta?.page?.takeIf { it > 0 } ?: page
+            totalPages = ((total + limit - 1) / limit).coerceIn(1, MAX_CAMPUS_PAGES)
+            AppLog.d(TAG, "campuses page=$currentPage/$totalPages total=$total chunk=${chunk.size}")
+            if (chunk.isEmpty()) break
+            page = currentPage + 1
+        } while (page <= totalPages)
+
+        val campuses = all
+            .filter { it.districtId.isBlank() || it.districtId.equals(districtId, ignoreCase = true) }
+            .distinctBy { it.id }
+        AppLog.i(TAG, "campuses loaded district=$districtId count=${campuses.size} (fetched ${all.size})")
         return campuses
     }
+
+    /**
+     * District the user joined with: resolved from the stored invite code (so the campus list
+     * is exactly that invite code's campuses), falling back to the stored district id.
+     */
+    suspend fun inviteDistrictId(): String? {
+        val invite = sessionStore.getInviteCode()?.trim()?.takeIf { it.isNotEmpty() }
+        if (invite != null) {
+            runCatching { api.getDistrictFromInviteCode(invite).data?.id }
+                .onFailure { AppLog.w(TAG, "Invite district lookup failed — using stored district", it) }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { return it }
+        }
+        return sessionStore.getDistrictId()?.takeIf { it.isNotBlank() }
+    }
+
+    /** Logged-in user's name / email for the Settings profile card. */
+    suspend fun currentUser() = sessionStore.getAccessTokenResponse()?.userDetail
 
     suspend fun selectCampus(districtId: String, campus: CampusDto) {
         AppLog.i(TAG, "Select campus districtId=$districtId campusId=${campus.id} name=${campus.name}")
@@ -149,5 +188,7 @@ class AuthInteract(
 
     companion object {
         private const val TAG = "AuthApi"
+        private const val CAMPUS_PAGE_SIZE = 50
+        private const val MAX_CAMPUS_PAGES = 50
     }
 }

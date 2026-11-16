@@ -7,8 +7,14 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.RecyclerView
 import com.guardianangel.dronetelementry.R
+import com.guardianangel.dronetelementry.data.model.CampusDroneDto
 import com.guardianangel.dronetelementry.databinding.ItemDroneBinding
 import com.guardianangel.dronetelementry.domain.model.DroneMapPose
+
+/** KINETIC_STRIKE → "Kinetic Strike". */
+internal fun formatEnumLabel(raw: String): String =
+    raw.trim().split('_', ' ').filter { it.isNotBlank() }
+        .joinToString(" ") { it.lowercase().replaceFirstChar(Char::uppercase) }
 
 class DroneListAdapter(
     private val onToggle: (String) -> Unit,
@@ -16,6 +22,14 @@ class DroneListAdapter(
 
     private var items: List<DroneMapPose> = emptyList()
     private var expandedId: String? = null
+    /** Campus roster by display_id (`campuses/drones/`), merged into each live row. */
+    private var roster: Map<String, CampusDroneDto> = emptyMap()
+
+    fun submitRoster(map: Map<String, CampusDroneDto>) {
+        if (map == roster) return
+        roster = map
+        notifyDataSetChanged()
+    }
 
     fun submitData(list: List<DroneMapPose>) {
         items = list.sortedBy { it.droneDisplayId }
@@ -49,6 +63,7 @@ class DroneListAdapter(
         val item = items[position]
         holder.bind(
             item = item,
+            rosterDrone = roster[item.droneDisplayId],
             expanded = item.droneDisplayId == expandedId,
             onToggle = onToggle,
         )
@@ -62,11 +77,14 @@ class DroneListAdapter(
 
         fun bind(
             item: DroneMapPose,
+            rosterDrone: CampusDroneDto?,
             expanded: Boolean,
             onToggle: (String) -> Unit,
         ) {
             binding.droneId.text = item.droneDisplayId
-            binding.droneMeta.text = item.listMetaLine()
+            // Roster type (e.g. "Dazzler") in front of the live state line.
+            val type = rosterDrone?.type?.let(::formatEnumLabel)
+            binding.droneMeta.text = listOfNotNull(type, item.listMetaLine()).joinToString(" · ")
             binding.droneBattery.text = "${item.batteryPercent}%"
             binding.droneBattery.applyToneColor(batteryTone(item.batteryPercent))
             binding.droneCard.setBackgroundResource(
@@ -82,7 +100,7 @@ class DroneListAdapter(
             binding.droneDetailPanel.isVisible = expanded
 
             if (expanded) {
-                bindExpandedDetails(item)
+                bindExpandedDetails(item, rosterDrone)
             }
 
             // Force wrap_content remasure so expanded text is not clipped by old item height.
@@ -103,7 +121,7 @@ class DroneListAdapter(
             }
         }
 
-        private fun bindExpandedDetails(pose: DroneMapPose) {
+        private fun bindExpandedDetails(pose: DroneMapPose, rosterDrone: CampusDroneDto?) {
             bindStateChip(binding.detailState, pose.state)
             binding.detailBatteryBar.progress = pose.batteryPercent.coerceIn(0, 100)
             binding.detailBatteryBar.applyBatteryTint(pose.batteryPercent)
@@ -126,9 +144,18 @@ class DroneListAdapter(
                 val video = pose.videoDeviceStatus?.trim().orEmpty()
                 if (video.isNotEmpty()) append(" · Cam $video")
             }
-            val ip = pose.droneIp?.trim().orEmpty()
-            binding.detailIp.isVisible = ip.isNotEmpty()
-            binding.detailIp.text = ip
+            // IP + roster facts (status, weapons, flight hours) under the live details.
+            val extra = buildList {
+                pose.droneIp?.trim()?.takeIf { it.isNotEmpty() }?.let(::add)
+                rosterDrone?.status?.let { add("Roster ${formatEnumLabel(it)}") }
+                rosterDrone?.weapons.orEmpty()
+                    .mapNotNull { w -> w.type?.let { "${formatEnumLabel(it)} ${w.roundsRemaining ?: 0}/${w.totalRounds ?: 0}" } }
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { add("Weapons " + it.joinToString(", ")) }
+                rosterDrone?.flightHours?.let { add("Flight ${"%.1f".format(it)} h") }
+            }
+            binding.detailIp.isVisible = extra.isNotEmpty()
+            binding.detailIp.text = extra.joinToString("\n")
         }
 
         private fun bindStateChip(view: TextView, state: String?) {

@@ -8,6 +8,7 @@ import com.guardianangel.dronetelementry.data.model.DistrictResponseDto
 import com.guardianangel.dronetelementry.data.remote.OAuthHelper
 import com.guardianangel.dronetelementry.domain.interact.AuthInteract
 import com.guardianangel.dronetelementry.utils.AppLog
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -40,17 +41,24 @@ class OnboardingViewModel(
     private val _nav = MutableSharedFlow<OnboardingNav>()
     val nav: SharedFlow<OnboardingNav> = _nav.asSharedFlow()
 
-    fun onInviteCodeChanged(code: String) {
-        _state.update { it.copy(inviteCode = code.trim(), error = null) }
+    private var inviteJob: Job? = null
+
+    /**
+     * Mithril onUpdateInviteCode: code is upper-cased alphanumerics, max [INVITE_CODE_LENGTH];
+     * a full-length code triggers the district lookup automatically. Any edit drops the
+     * previously resolved district so Continue can't sign in against a stale code.
+     */
+    fun onInviteCodeChanged(raw: String) {
+        val code = raw.filter(Char::isLetterOrDigit).uppercase().take(INVITE_CODE_LENGTH)
+        if (code == _state.value.inviteCode) return
+        inviteJob?.cancel()
+        _state.update { it.copy(inviteCode = code, district = null, loading = false, error = null) }
+        if (code.length == INVITE_CODE_LENGTH) submitInviteCode()
     }
 
-    fun submitInviteCode() {
+    private fun submitInviteCode() {
         val code = _state.value.inviteCode
-        if (code.isBlank()) {
-            _state.update { it.copy(error = "Enter an invite code") }
-            return
-        }
-        viewModelScope.launch {
+        inviteJob = viewModelScope.launch {
             AppLog.i(TAG, "submitInviteCode code=$code")
             _state.update { it.copy(loading = true, error = null) }
             runCatching { authInteract.getDistrict(code) }
@@ -115,5 +123,6 @@ class OnboardingViewModel(
 
     companion object {
         private const val TAG = "OnboardingVM"
+        const val INVITE_CODE_LENGTH = 6
     }
 }

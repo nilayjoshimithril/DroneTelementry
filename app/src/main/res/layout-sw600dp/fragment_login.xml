@@ -142,20 +142,12 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:imeOptions="actionDone"
-                            android:inputType="textCapCharacters"
+                            android:inputType="textCapCharacters|textNoSuggestions|textVisiblePassword"
+                            android:maxLength="6"
                             android:maxLines="1"
                             android:textColor="@color/md_primary"
                             android:textSize="18sp" />
                     </com.google.android.material.textfield.TextInputLayout>
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_continue"
-                        style="@style/Widget.Drone.Button"
-                        android:layout_width="match_parent"
-                        android:layout_height="58dp"
-                        android:layout_marginTop="16dp"
-                        android:text="@string/continue_label"
-                        android:textSize="16sp" />
 
                     <LinearLayout
                         android:id="@+id/district_panel"
@@ -189,16 +181,18 @@
                             android:textColor="@color/md_hint"
                             android:textSize="15sp"
                             tools:text="Gurgaon, GA" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btn_microsoft"
-                            style="@style/Widget.Drone.Button.Orange"
-                            android:layout_width="match_parent"
-                            android:layout_height="58dp"
-                            android:layout_marginTop="20dp"
-                            android:text="@string/sign_in_microsoft"
-                            android:textSize="16sp" />
                     </LinearLayout>
+
+                    <!-- Single action (Mithril LoginScreen): enabled once the 6-char code resolves a district. -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_continue"
+                        style="@style/Widget.Drone.Button.Orange"
+                        android:layout_width="match_parent"
+                        android:layout_height="58dp"
+                        android:layout_marginTop="20dp"
+                        android:enabled="false"
+                        android:text="@string/continue_label"
+                        android:textSize="16sp" />
 
                     <ProgressBar
                         android:id="@+id/progress"

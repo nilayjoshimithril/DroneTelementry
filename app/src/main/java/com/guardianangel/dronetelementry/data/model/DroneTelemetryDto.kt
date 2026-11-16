@@ -24,4 +24,5 @@ data class DroneTelemetryDto(
     @SerialName("esc_status") val escStatus: String? = null,
     @SerialName("battery_unit_status") val batteryUnitStatus: String? = null,
     @SerialName("motor_status") val motorStatus: String? = null,
+    @SerialName("pilot_id") val pilotId: String? = null,
 )

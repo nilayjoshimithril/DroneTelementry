@@ -1,9 +1,15 @@
 package com.guardianangel.dronetelementry.presentation.home
 
 import android.content.res.Configuration
+import android.graphics.Typeface
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
 import android.os.Bundle
 import android.view.View
 import android.widget.Toast
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
@@ -13,11 +19,16 @@ import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.guardianangel.dronetelementry.R
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.guardianangel.dronetelementry.data.remote.IncidentEndedNotice
+import com.guardianangel.dronetelementry.data.remote.SessionEvents
 import com.guardianangel.dronetelementry.databinding.FragmentHomeBinding
 import com.guardianangel.dronetelementry.presentation.map.MapSessionActivity
 import com.guardianangel.dronetelementry.ui.applyMithrilBlurredBackground
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
+import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
 class HomeFragment : Fragment(R.layout.fragment_home) {
@@ -25,6 +36,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
     private var _binding: FragmentHomeBinding? = null
     private val binding get() = _binding!!
     private val viewModel: HomeViewModel by viewModel()
+    private val sessionEvents: SessionEvents by inject()
 
     private val adapter = IncidentAdapter { incident ->
         viewModel.join(incident)
@@ -37,7 +49,10 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         binding.incidentList.layoutManager = incidentLayoutManager()
         binding.incidentList.adapter = adapter
         binding.btnRefresh.setOnClickListener { viewModel.refresh(showLoader = true) }
-        binding.btnLogout.setOnClickListener { viewModel.logout() }
+        // Log out moved to Settings (with its confirmation dialog).
+        binding.btnSettings.setOnClickListener {
+            findNavController().navigate(R.id.action_home_to_settings)
+        }
 
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -61,6 +76,15 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                             }
                         }
                         launch {
+                            // Mithril HomeDialogs "Alarm Ended": the map screen closed because
+                            // the incident was resolved / cancelled.
+                            sessionEvents.incidentEnded.filterNotNull().collect { notice ->
+                                sessionEvents.consumeIncidentEnded()
+                                viewModel.refresh(showLoader = false)
+                                showIncidentEndedDialog(notice)
+                            }
+                        }
+                        launch {
                             viewModel.nav.collect { dest ->
                                 when (dest) {
                                     is HomeNav.MapSession -> {
@@ -72,7 +96,6 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                                             wsTicket = dest.wsTicket,
                                         )
                                     }
-                                    HomeNav.Login -> findNavController().navigate(R.id.action_home_to_login)
                                 }
                             }
                         }
@@ -82,6 +105,52 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                 }
             }
         }
+    }
+
+    private fun showIncidentEndedDialog(notice: IncidentEndedNotice) {
+        val ctx = requireContext()
+        val muted = ColorUtils.setAlphaComponent(ctx.getColor(R.color.md_primary), 0x99)
+        val message = SpannableStringBuilder()
+        fun mutedText(text: String) {
+            val start = message.length
+            message.append(text)
+            message.setSpan(ForegroundColorSpan(muted), start, message.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        fun campus() {
+            val start = message.length
+            message.append(notice.campusName)
+            message.setSpan(StyleSpan(Typeface.BOLD), start, message.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        // Same copy as Mithril buildIncidentEndedMessage.
+        when {
+            notice.isFalseAlarm && notice.isLawEnforcement -> {
+                mutedText("The alert at "); campus(); mutedText(" has been cancelled")
+            }
+            notice.isFalseAlarm -> {
+                mutedText("FALSE ALARM. "); campus()
+                mutedText(" is no longer being monitored by Campus Guardian Angel.")
+            }
+            notice.isLawEnforcement -> {
+                mutedText("The incident at "); campus()
+                mutedText(" is no longer being monitored by Campus Guardian Angel. ")
+            }
+            else -> {
+                mutedText("The incident at "); campus()
+                mutedText(
+                    " is no longer being monitored by Campus Guardian Angel. " +
+                        "All future information will be communicated by School administration or law enforcement.",
+                )
+            }
+        }
+        MaterialAlertDialogBuilder(ctx)
+            .setTitle(R.string.alarm_ended)
+            .setMessage(message)
+            .setCancelable(false)
+            .setPositiveButton(
+                if (notice.isLawEnforcement) R.string.continue_action else R.string.dismiss,
+                null,
+            )
+            .show()
     }
 
     private fun incidentLayoutManager() =

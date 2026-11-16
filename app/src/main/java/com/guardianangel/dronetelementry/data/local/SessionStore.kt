@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.guardianangel.dronetelementry.data.model.AccessTokenResponseDto
@@ -24,6 +25,8 @@ class SessionStore(
         val CAMPUS_ID = stringPreferencesKey("campus_id")
         val CAMPUS_NAME = stringPreferencesKey("campus_name")
         val INVITE_CODE = stringPreferencesKey("invite_code")
+        /** Default map zoom (multiple of fit). Lives in this store so logout's clear() drops it. */
+        val MAP_ZOOM_LEVEL = floatPreferencesKey("map_zoom_level")
     }
 
     val accessTokenFlow: Flow<String?> = context.dataStore.data.map { prefs ->
@@ -88,6 +91,12 @@ class SessionStore(
     }
 
     suspend fun getInviteCode(): String? = context.dataStore.data.first()[Keys.INVITE_CODE]
+
+    suspend fun saveMapZoomLevel(level: Float) {
+        context.dataStore.edit { it[Keys.MAP_ZOOM_LEVEL] = level }
+    }
+
+    suspend fun getMapZoomLevel(): Float? = context.dataStore.data.first()[Keys.MAP_ZOOM_LEVEL]
 
     suspend fun clear() {
         context.dataStore.edit { it.clear() }

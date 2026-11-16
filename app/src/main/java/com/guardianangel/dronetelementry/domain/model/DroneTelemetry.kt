@@ -32,6 +32,8 @@ data class DroneTelemetry(
     val escStatus: String?,
     val batteryUnitStatus: String?,
     val motorStatus: String?,
+    /** Pilot (user id) flying this drone, when telemetry carries it. */
+    val pilotId: String? = null,
 ) {
     /** Yaw in degrees from Unreal-style quaternion (Z-up). */
     val headingDegrees: Double

@@ -34,8 +34,6 @@ sealed interface HomeNav {
         val campusId: String,
         val wsTicket: String,
     ) : HomeNav
-
-    data object Login : HomeNav
 }
 
 class HomeViewModel(
@@ -170,15 +168,6 @@ class HomeViewModel(
                         it.copy(joiningId = null, error = e.message ?: "Join failed")
                     }
                 }
-        }
-    }
-
-    fun logout() {
-        viewModelScope.launch {
-            AppLog.i(TAG, "Logout from Home")
-            stopIncidentPolling()
-            authInteract.logout()
-            _nav.emit(HomeNav.Login)
         }
     }
 

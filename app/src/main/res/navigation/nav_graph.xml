@@ -53,5 +53,42 @@
             app:destination="@id/loginFragment"
             app:popUpTo="@id/nav_graph"
             app:popUpToInclusive="true" />
+        <action
+            android:id="@+id/action_home_to_settings"
+            app:destination="@id/settingsFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/settingsFragment"
+        android:name="com.guardianangel.dronetelementry.presentation.settings.SettingsFragment"
+        android:label="Settings"
+        tools:layout="@layout/fragment_settings">
+        <action
+            android:id="@+id/action_settings_to_zoom_campuses"
+            app:destination="@id/zoomCampusListFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/zoomCampusListFragment"
+        android:name="com.guardianangel.dronetelementry.presentation.settings.ZoomCampusListFragment"
+        android:label="Map zoom level"
+        tools:layout="@layout/fragment_zoom_campuses">
+        <action
+            android:id="@+id/action_zoom_campuses_to_preview"
+            app:destination="@id/zoomPreviewFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/zoomPreviewFragment"
+        android:name="com.guardianangel.dronetelementry.presentation.settings.ZoomPreviewFragment"
+        android:label="Zoom preview"
+        tools:layout="@layout/fragment_zoom_preview">
+        <argument
+            android:name="campusId"
+            app:argType="string" />
+        <argument
+            android:name="campusName"
+            android:defaultValue=""
+            app:argType="string" />
     </fragment>
 </navigation>

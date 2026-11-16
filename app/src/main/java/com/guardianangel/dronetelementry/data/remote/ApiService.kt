@@ -2,6 +2,7 @@ package com.guardianangel.dronetelementry.data.remote
 
 import com.guardianangel.dronetelementry.data.model.AccessTokenResponseDto
 import com.guardianangel.dronetelementry.data.model.AnnotationDataDto
+import com.guardianangel.dronetelementry.data.model.CampusDronePageDto
 import com.guardianangel.dronetelementry.data.model.CampusesResponseDto
 import com.guardianangel.dronetelementry.data.model.DistrictResponseDto
 import com.guardianangel.dronetelementry.data.model.IncidentRequestDto
@@ -43,6 +44,8 @@ interface ApiService {
     @GET("campuses")
     suspend fun getCampuses(
         @Query("district_id") districtId: String,
+        @Query("page") page: Int = 1,
+        @Query("limit") limit: Int = 50,
     ): MainGenericResponse<CampusesResponseDto>
 
     /** Home list: district-scoped only (no campus_id), same intent as Mithril home fetch. */
@@ -66,6 +69,14 @@ interface ApiService {
         @Path("campusId") campusId: String,
         @Query("client_type") clientType: String = "app",
     ): MainGenericResponse<MapConfigResponseDto>
+
+    /** Paginated campus drone roster (`data.meta` limit/page/total). */
+    @GET("campuses/drones/")
+    suspend fun getCampusDrones(
+        @Query("campus_id") campusId: String,
+        @Query("page") page: Int = 1,
+        @Query("limit") limit: Int = 100,
+    ): MainGenericResponse<CampusDronePageDto>
 
     @GET("annotations")
     suspend fun getAnnotations(

@@ -10,13 +10,24 @@ const val DEFAULT_PATHWAY_THICKNESS = 20f
 
 /**
  * Real-time color pathway (spline) in raw Unreal world units — Mithril [MosaicColorPathway].
- * [floorIds] is kept for when per-floor slicing is re-enabled upstream.
+ * [floorIds] is the union of every floor the pathway touches; [chunks] drives per-floor point
+ * slicing so an indoor floor only draws the stretch of the spline that lies on it.
  */
 data class ColorPathway(
     val id: String,
     val colorArgb: Int,
     val thickness: Float,
     val points: List<PointF>,
+    val floorIds: List<String>,
+    val chunks: List<PathwayChunk> = emptyList(),
+)
+
+/**
+ * One `spline_chunks[]` entry: points `[previous endpoint..endpointIndex]` (inclusive, first
+ * chunk starts at 0) lie on [floorIds] (already resolved to map-config floor ids).
+ */
+data class PathwayChunk(
+    val endpointIndex: Int,
     val floorIds: List<String>,
 )
 
@@ -57,20 +68,73 @@ fun pathwayColorArgb(colorIndex: Int?): Int = when (colorIndex) {
 }
 
 /**
- * Mithril [MosaicColorPathway.isVisibleOnFloor]: the floor-id guard is disabled upstream,
- * so every pathway with a drawable polyline shows on outdoor and every indoor floor.
+ * Point runs of this pathway to draw on the selected layer (Mithril
+ * [MosaicColorPathway.pointSegmentsForFloor] with the floor guard enabled):
+ * - outdoor → the full polyline (outdoor shows every pathway);
+ * - indoor with chunk metadata → only chunks whose floor_ids include the selected floor;
+ *   adjacent matching chunks stay one run, gaps split into separate runs so we never draw
+ *   a jump across a stretch that lies on another floor;
+ * - indoor without chunks (legacy `spline_floors`) → full polyline only if it lists the floor.
  */
-fun ColorPathway.isVisibleOnLayer(): Boolean = points.size >= 2
+fun ColorPathway.segmentsForLayer(
+    config: MapConfigResponseDto?,
+    selectedBuildingId: String?,
+    selectedFloorId: String,
+): List<List<PointF>> {
+    if (points.size < 2) return emptyList()
+    val bid = normalizeBuildingId(selectedBuildingId)
+    if (bid.equals(OUTDOOR_BUILDING_ID, ignoreCase = true) ||
+        selectedFloorId.equals(OUTDOOR_FLOOR_ID, ignoreCase = true)
+    ) {
+        return listOf(points)
+    }
+    val building = findBuilding(config, bid)
+    fun onSelectedFloor(floorId: String): Boolean {
+        if (floorId.equals(OUTDOOR_FLOOR_ID, ignoreCase = true)) return false
+        if (floorId.equals(selectedFloorId, ignoreCase = true)) return true
+        return building != null && floorsReferToSame(building, floorId, selectedFloorId)
+    }
 
-fun ColorPathway.toRender(transform: FloorPlanTransform): PathwayRender {
-    val pts = FloatArray(points.size * 2)
-    points.forEachIndexed { i, p ->
+    if (chunks.isEmpty()) {
+        return if (floorIds.any(::onSelectedFloor)) listOf(points) else emptyList()
+    }
+
+    val segments = mutableListOf<List<PointF>>()
+    var pending = mutableListOf<PointF>()
+    fun flush() {
+        if (pending.size >= 2) segments += pending.toList()
+        pending = mutableListOf()
+    }
+    var rangeStart = 0
+    for (chunk in chunks.sortedBy { it.endpointIndex }) {
+        val rangeEnd = chunk.endpointIndex.coerceIn(0, points.lastIndex)
+        if (rangeStart > rangeEnd) continue
+        if (chunk.floorIds.any(::onSelectedFloor)) {
+            // Adjacent chunks share their boundary point — don't duplicate it.
+            val sliceStart = if (pending.isEmpty()) rangeStart else (rangeStart + 1).coerceAtMost(rangeEnd)
+            if (sliceStart <= rangeEnd) pending.addAll(points.subList(sliceStart, rangeEnd + 1))
+        } else {
+            flush()
+        }
+        rangeStart = rangeEnd
+    }
+    flush()
+    return segments
+}
+
+/** One [PathwayRender] per visible run (ids suffixed so each gets its own Path). */
+fun ColorPathway.toRenders(
+    transform: FloorPlanTransform,
+    segments: List<List<PointF>>,
+): List<PathwayRender> = segments.mapIndexed { index, run ->
+    val pts = FloatArray(run.size * 2)
+    run.forEachIndexed { i, p ->
         val px = unrealToFloorPlanPixel(p, transform)
         pts[i * 2] = px.x
         pts[i * 2 + 1] = px.y
     }
-    return PathwayRender(
-        id = id,
+    PathwayRender(
+        id = if (segments.size == 1) id else "$id#$index",
         colorArgb = colorArgb,
         strokeWorldPx = thickness * transform.unrealToPixels,
         points = pts,
@@ -89,15 +153,26 @@ fun ColorPathwayDto.toColorPathway(
     val rawBuilding = splineChunks.orEmpty()
         .firstNotNullOfOrNull { chunk -> chunk.buildingIds.orEmpty().firstOrNull { it.isNotBlank() } }
         ?: splineBuildings?.firstOrNull()
-    val chunkFloors = splineChunks.orEmpty()
-        .flatMap { it.floorIds.orEmpty() }
+    // Legacy payloads put the floor once at the top (`spline_floors`) and send chunks with only
+    // `chunk_end_point_index` — those chunks inherit the top-level floors.
+    val legacyFloors = splineFloors.orEmpty()
         .mapNotNull { it.trim().takeIf(String::isNotEmpty) }
-    val rawFloors = chunkFloors.ifEmpty {
-        splineFloors.orEmpty().mapNotNull { it.trim().takeIf(String::isNotEmpty) }
-    }
-    val floorIds = rawFloors
         .map { resolveChunkFloorId(config, campusId, rawBuilding, it) }
         .distinct()
+    val chunks = splineChunks.orEmpty().mapNotNull { chunk ->
+        val end = chunk.endpointIndex ?: chunk.chunkEndPointIndex ?: return@mapNotNull null
+        val chunkBuilding = chunk.buildingIds.orEmpty().firstOrNull { it.isNotBlank() } ?: rawBuilding
+        PathwayChunk(
+            endpointIndex = end,
+            floorIds = chunk.floorIds.orEmpty()
+                .mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+                .map { resolveChunkFloorId(config, campusId, chunkBuilding, it) }
+                .distinct()
+                .ifEmpty { legacyFloors },
+        )
+    }.sortedBy { it.endpointIndex }
+    val floorIds = chunks.flatMap { it.floorIds }.distinct()
+        .ifEmpty { legacyFloors }
         .ifEmpty { listOf(OUTDOOR_FLOOR_ID) }
     val points = splinePoints.orEmpty().mapNotNull { p ->
         val x = p.x?.toFloat() ?: return@mapNotNull null
@@ -110,6 +185,7 @@ fun ColorPathwayDto.toColorPathway(
         thickness = splineThickness?.toFloat() ?: DEFAULT_PATHWAY_THICKNESS,
         points = points,
         floorIds = floorIds,
+        chunks = chunks,
     )
 }
 
@@ -246,18 +322,19 @@ private fun resolveOverlayFloorId(
         searchPool.find { (it.level ?: 0) < 0 }?.let { return it.floorId }
     }
 
-    searchPool.find {
-        normalize(it.floorLabel) == normalizedInput ||
-            normalize(it.floorId) == normalizedInput ||
-            it.level?.toString() == normalizedInput
-    }?.let { return it.floorId }
+    // Label matches always win over id/level matches — mixing them in one pass let "Floor 1"
+    // land on "FL 2" when that floor's (0-based) level was 1 or its UUID contained a "1".
+    searchPool.find { normalize(it.floorLabel) == normalizedInput }?.let { return it.floorId }
 
     val numericInput = normalizedInput.filter { it.isDigit() }
     if (numericInput.isNotEmpty()) {
-        searchPool.find {
-            it.floorId.contains(numericInput) || it.floorLabel.contains(numericInput)
-        }?.let { return it.floorId }
+        // "Floor 1" ↔ "FL 1" / "Level 1" / "1st Floor": compare the label's number exactly.
+        searchPool.find { it.floorLabel.filter(Char::isDigit) == numericInput }
+            ?.let { return it.floorId }
     }
+
+    searchPool.find { normalize(it.floorId) == normalizedInput }?.let { return it.floorId }
+    searchPool.find { it.level?.toString() == normalizedInput }?.let { return it.floorId }
 
     if (building != null) return building.floors.firstOrNull()?.floorId ?: floorName
     return if (floorName.equals(OUTDOOR_FLOOR_ID, ignoreCase = true)) OUTDOOR_FLOOR_ID else floorName

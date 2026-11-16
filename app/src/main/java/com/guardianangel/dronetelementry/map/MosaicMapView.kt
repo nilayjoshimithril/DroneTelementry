@@ -144,7 +144,46 @@ class MosaicMapView @JvmOverloads constructor(
     private var cameraAnimator: ValueAnimator? = null
     private val isCameraAnimating: Boolean get() = cameraAnimator != null
 
+    // ---- Navigation view (Google Maps driving-style 3D camera) ----
+    /** 0 = top-down, 1 = fully tilted to [NAV_TILT_DEG]; animated by [navAnimator]. */
+    private var navT = 0f
+    /** Map rotation in degrees (clockwise heading that points straight up on screen). */
+    private var bearing = 0f
+    private var navEnabled = false
+    private var navAnimator: ValueAnimator? = null
+    /** Zoom before entering the navigation view, restored when leaving it. */
+    private var preNavScale: Float? = null
+    /** Screen-space part of the camera: rotate by -[bearing] then tilt, both about the anchor. */
+    private val viewMatrix = Matrix()
+    private val tiltMatrix = Matrix()
+    private val tiltValues = FloatArray(9)
+    private val screenPt = FloatArray(2)
+    private val prePt = FloatArray(2)
+    private val visibleWorld = RectF()
+    private val preClip = RectF()
+
+    /** Zoom a layer opens at, as a multiple of "fit the whole layer" (1 = fit). */
+    var defaultZoom = 1f
+        set(value) {
+            field = value.coerceAtLeast(1f)
+        }
+
+    /**
+     * Settings preview: apply [level] to the current layer immediately, keeping the point under
+     * the screen centre fixed, and use it for later fits too.
+     */
+    fun previewZoom(level: Float) {
+        defaultZoom = level
+        if (fitPending || width == 0 || height == 0) return
+        stopCameraAnimation()
+        val center = centerWorld()
+        scale = (minScale * defaultZoom).coerceIn(minScale, MAX_SCALE)
+        setCenterWorld(center)
+    }
+
     var onDroneTapped: ((String) -> Unit)? = null
+    /** Tap on a threat marker — Mithril onAnnotationClick(THREAT) → performLocateThreat. */
+    var onThreatTapped: ((String) -> Unit)? = null
     /** User pan / pinch / double-tap — the camera follow has been released. */
     var onUserInteraction: (() -> Unit)? = null
 
@@ -194,16 +233,33 @@ class MosaicMapView @JvmOverloads constructor(
         color = Color.parseColor("#99000000")
     }
     private val threatLabelRect = RectF()
+    private val threatHaloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#40EF4141")
+        style = Paint.Style.FILL
+    }
+    private val threatHaloStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#EF4141")
+        style = Paint.Style.STROKE
+    }
+    private val navArrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = NAV_ARROW_COLOR
+        style = Paint.Style.FILL
+    }
+    private val navArrowStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val navShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#33000000")
+        style = Paint.Style.FILL
+    }
     private val iconCache = ConcurrentHashMap<Int, Bitmap>()
     private val headingArcRect = RectF()
     private val droneBodyRect = RectF()
     private val annotationRect = RectF()
     private val tileDst = RectF()
     private val arrowPath = Path()
-    private val invertMatrix = Matrix()
-    private val touchPoint = FloatArray(2)
-    /** World-space rect (with [OVERLAY_CULL_MARGIN_PX]) in which overlays are drawn this frame. */
-    private val cullRect = RectF()
 
     private val scaleDetector = ScaleGestureDetector(context, ScaleListener())
     private val gestureDetector = GestureDetector(context, GestureListener())
@@ -348,6 +404,7 @@ class MosaicMapView @JvmOverloads constructor(
     private fun applyFollowCamera() {
         if (follow == null || fitPending || width == 0 || height == 0) return
         val pos = followTargetPos() ?: return
+        steerBearingToFollowedDrone()
         when {
             followFlyToPending -> {
                 followFlyToPending = false
@@ -364,18 +421,52 @@ class MosaicMapView @JvmOverloads constructor(
         }
     }
 
-    /** Locate zooms to at least fit * 2.5 so the marker's surroundings are readable. */
-    private fun focusScale(): Float =
-        scale.coerceAtLeast(minScale * FOCUS_ZOOM_MULTIPLIER).coerceAtMost(MAX_SCALE)
+    /**
+     * Navigation view: ease the map rotation toward the followed drone's heading so its
+     * direction of travel points up (Google Maps driving camera). Smoothed so jittery
+     * telemetry headings don't shake the map.
+     */
+    private fun steerBearingToFollowedDrone() {
+        if (!navEnabled) return
+        val target = follow?.takeIf { it.kind == CameraFollow.Kind.DRONE } ?: return
+        val pose = dronePoses[target.id]
+            ?: dronePoses.values.firstOrNull { it.droneDisplayId == target.id }
+            ?: return
+        val delta = shortestAngle(bearing, screenHeading(pose))
+        if (kotlin.math.abs(delta) < 0.05f) return
+        bearing = normalizeDeg(bearing + delta * BEARING_SMOOTHING)
+        updateViewMatrix()
+    }
+
+    /**
+     * Telemetry yaw → map heading (0° = screen up, clockwise). Yaw is Unreal's: 0° along +X,
+     * which the floor-plan transform maps to screen-right, increasing clockwise (+Y is down) —
+     * so up-relative heading is yaw + 90°. Drawing raw yaw pointed every arrow 90° off.
+     */
+    private fun screenHeading(pose: DroneMapPose): Float =
+        normalizeDeg(pose.headingDegrees + YAW_TO_SCREEN_HEADING_DEG)
+
+    /**
+     * Locate zooms to at least fit * 2.5 so the marker's surroundings are readable; in the
+     * navigation view at least fit * [NAV_ZOOM_MULTIPLIER] so the tilted ground stays legible.
+     */
+    private fun focusScale(): Float {
+        val multiplier = if (navEnabled) NAV_ZOOM_MULTIPLIER else FOCUS_ZOOM_MULTIPLIER
+        return scale.coerceAtLeast(minScale * multiplier).coerceAtMost(MAX_SCALE)
+    }
+
+    /** Screen point the camera centres on: mid-screen top-down, lower third when tilted. */
+    private fun anchorX(): Float = width / 2f
+    private fun anchorY(): Float = height * (0.5f + (NAV_ANCHOR_Y_FRAC - 0.5f) * navT)
 
     private fun setCenterWorld(world: PointF) {
-        transX = width / 2f - world.x * scale
-        transY = height / 2f - world.y * scale
+        transX = anchorX() - world.x * scale
+        transY = anchorY() - world.y * scale
         onViewportChanged()
     }
 
     private fun centerWorld(): PointF =
-        PointF((width / 2f - transX) / scale, (height / 2f - transY) / scale)
+        PointF((anchorX() - transX) / scale, (anchorY() - transY) / scale)
 
     /**
      * Mithril ViewportState.animateCenterAndScale: optional 250 ms zoom-out for context, then a
@@ -400,8 +491,8 @@ class MosaicMapView @JvmOverloads constructor(
             startCameraAnimator(FLY_TO_MOVE_MS) { progress ->
                 scale = fromScale + (targetScale - fromScale) * progress
                 val target = liveTarget?.invoke() ?: worldPos
-                val toX = width / 2f - target.x * targetScale
-                val toY = height / 2f - target.y * targetScale
+                val toX = anchorX() - target.x * targetScale
+                val toY = anchorY() - target.y * targetScale
                 transX = fromX + (toX - fromX) * progress
                 transY = fromY + (toY - fromY) * progress
             }
@@ -411,8 +502,8 @@ class MosaicMapView @JvmOverloads constructor(
             startCameraAnimator(FLY_TO_PRE_ZOOM_MS, onEnd = ::moveStage) { progress ->
                 val center = centerWorld()
                 scale = startScale + (intermediateScale - startScale) * progress
-                transX = width / 2f - center.x * scale
-                transY = height / 2f - center.y * scale
+                transX = anchorX() - center.x * scale
+                transY = anchorY() - center.y * scale
             }
         } else {
             moveStage()
@@ -508,11 +599,11 @@ class MosaicMapView @JvmOverloads constructor(
 
     /** Fills [visibleRange] (col0, col1, row0, row1) with cells on screen + [buffer] cells. */
     private fun computeVisibleRange(buffer: Int): Boolean {
-        if (width == 0 || height == 0 || scale <= 0f) return false
-        val left = -transX / scale
-        val top = -transY / scale
-        val right = (width - transX) / scale
-        val bottom = (height - transY) / scale
+        if (!computeVisibleWorld(visibleWorld)) return false
+        val left = visibleWorld.left
+        val top = visibleWorld.top
+        val right = visibleWorld.right
+        val bottom = visibleWorld.bottom
         val c0 = (floor(left / tileWidth).toInt() - buffer).coerceAtLeast(0)
         val c1 = (floor(right / tileWidth).toInt() + buffer).coerceAtMost(cols - 1)
         val r0 = (floor(top / tileHeight).toInt() - buffer).coerceAtLeast(0)
@@ -728,10 +819,11 @@ class MosaicMapView @JvmOverloads constructor(
         fitPending = false
         val sx = width / worldWidth
         val sy = height / worldHeight
-        scale = min(sx, sy) * 0.95f
-        minScale = scale
-        transX = (width - worldWidth * scale) / 2f
-        transY = (height - worldHeight * scale) / 2f
+        minScale = min(sx, sy) * 0.95f
+        // User's saved default zoom (Settings → Map zoom level), centred on the layer.
+        scale = (minScale * defaultZoom).coerceIn(minScale, MAX_SCALE)
+        transX = anchorX() - worldWidth / 2f * scale
+        transY = anchorY() - worldHeight / 2f * scale
         tileLod = lodForScale(scale)
         // Stay on overview at fit; tiles load once the overview would be magnified.
         onViewportChanged()
@@ -745,6 +837,11 @@ class MosaicMapView @JvmOverloads constructor(
         drawMatrix.postScale(scale, scale)
         drawMatrix.postTranslate(transX, transY)
         canvas.save()
+        if (hasViewTransform()) {
+            canvas.concat(viewMatrix)
+            // Keep perspective geometry to what the screen shows (never near the eye plane).
+            if (computePreViewBounds(preClip)) canvas.clipRect(preClip)
+        }
         canvas.concat(drawMatrix)
 
         // Layer 1: low-res overview stretched to full mosaic world.
@@ -769,31 +866,85 @@ class MosaicMapView @JvmOverloads constructor(
             }
         }
 
-        // Overlays: skip anything outside the screen (+margin for icons/labels).
-        val margin = OVERLAY_CULL_MARGIN_PX / scale
-        cullRect.set(
-            -transX / scale - margin,
-            -transY / scale - margin,
-            (width - transX) / scale + margin,
-            (height - transY) / scale + margin,
-        )
-
-        // Pathways under markers; clipped so splines past the mosaic edge don't bleed out.
+        // Pathways lie on the ground plane; clipped so splines past the mosaic edge don't bleed out.
         if (pathways.isNotEmpty()) {
             canvas.save()
             canvas.clipRect(0f, 0f, worldWidth, worldHeight)
             pathways.forEach { (render, path) -> drawPathway(canvas, render, path) }
             canvas.restore()
         }
+        canvas.restore()
+
+        // Markers are billboards: projected to the screen, then drawn upright at a constant
+        // size, so they stay readable when the map is rotated/tilted (identical when top-down).
         annotations.forEach { marker ->
-            if (cullRect.contains(marker.pixelX, marker.pixelY)) drawAnnotation(canvas, marker)
+            billboard(canvas, marker.pixelX, marker.pixelY) { drawAnnotation(canvas, marker) }
         }
+        val focusedThreatId = follow?.takeIf { it.kind == CameraFollow.Kind.THREAT }?.id
         threats.forEach { threat ->
-            if (cullRect.contains(threat.pixelX, threat.pixelY)) drawThreat(canvas, threat)
+            if (threat.id == focusedThreatId) return@forEach
+            billboard(canvas, threat.pixelX, threat.pixelY) { drawThreat(canvas, threat, focused = false) }
         }
+        val navDroneId = navDroneId()
         dronePoses.values.forEach { pose ->
-            if (cullRect.contains(pose.pixelX, pose.pixelY)) drawDrone(canvas, pose)
+            if (pose.droneDisplayId == navDroneId) return@forEach
+            billboard(canvas, pose.pixelX, pose.pixelY) { drawDrone(canvas, pose) }
         }
+        // Focused threat on top, at Mithril's 2x focus size.
+        threats.firstOrNull { it.id == focusedThreatId }?.let { threat ->
+            billboard(canvas, threat.pixelX, threat.pixelY) { drawThreat(canvas, threat, focused = true) }
+        }
+        navDroneId?.let { id ->
+            val pose = dronePoses[id] ?: dronePoses.values.firstOrNull { it.droneDisplayId == id }
+            if (pose != null && project(pose.pixelX, pose.pixelY, screenPt)) {
+                drawNavArrow(canvas, screenPt[0], screenPt[1], screenHeading(pose) - bearing)
+            }
+        }
+    }
+
+    /**
+     * Draws [block] (which uses world coords + 1/scale sizes) upright at the marker's projected
+     * screen position. Skips markers off screen (+margin) or behind the camera.
+     */
+    private inline fun billboard(canvas: Canvas, worldX: Float, worldY: Float, block: () -> Unit) {
+        if (!project(worldX, worldY, screenPt)) return
+        val sx = screenPt[0]
+        val sy = screenPt[1]
+        if (sx < -OVERLAY_CULL_MARGIN_PX || sx > width + OVERLAY_CULL_MARGIN_PX ||
+            sy < -OVERLAY_CULL_MARGIN_PX || sy > height + OVERLAY_CULL_MARGIN_PX
+        ) {
+            return
+        }
+        canvas.save()
+        canvas.translate(sx, sy)
+        canvas.scale(scale, scale)
+        canvas.translate(-worldX, -worldY)
+        block()
+        canvas.restore()
+    }
+
+    /** Drone drawn as the navigation arrow: navigation view + camera following that drone. */
+    private fun navDroneId(): String? {
+        if (!navEnabled || navT < 0.5f) return null
+        return follow?.takeIf { it.kind == CameraFollow.Kind.DRONE }?.id
+    }
+
+    /** Google-Maps-style navigation chevron at a screen point; [screenHeadingDeg] 0 = up. */
+    private fun drawNavArrow(canvas: Canvas, sx: Float, sy: Float, screenHeadingDeg: Float) {
+        val r = NAV_ARROW_RADIUS_DP * resources.displayMetrics.density
+        canvas.save()
+        canvas.translate(sx, sy)
+        canvas.drawCircle(0f, r * 0.15f, r * 1.25f, navShadowPaint)
+        canvas.rotate(screenHeadingDeg)
+        arrowPath.reset()
+        arrowPath.moveTo(0f, -r)
+        arrowPath.lineTo(r * 0.78f, r * 0.85f)
+        arrowPath.lineTo(0f, r * 0.42f)
+        arrowPath.lineTo(-r * 0.78f, r * 0.85f)
+        arrowPath.close()
+        canvas.drawPath(arrowPath, navArrowPaint)
+        navArrowStroke.strokeWidth = r * 0.12f
+        canvas.drawPath(arrowPath, navArrowStroke)
         canvas.restore()
     }
 
@@ -819,9 +970,15 @@ class MosaicMapView @JvmOverloads constructor(
         canvas.drawPath(path, pathwayPaint)
     }
 
-    private fun drawThreat(canvas: Canvas, threat: ThreatMarker) {
+    private fun drawThreat(canvas: Canvas, threat: ThreatMarker, focused: Boolean) {
         val inv = 1f / scale.coerceAtLeast(0.35f)
-        val half = 24f * inv
+        // Mithril MithrilMapComponent: the followed threat is drawn at 2x the base icon size.
+        val half = 24f * inv * (if (focused) FOCUSED_THREAT_SCALE else 1f)
+        if (focused) {
+            canvas.drawCircle(threat.pixelX, threat.pixelY, half * 1.35f, threatHaloPaint)
+            threatHaloStroke.strokeWidth = 2.5f * inv
+            canvas.drawCircle(threat.pixelX, threat.pixelY, half * 1.35f, threatHaloStroke)
+        }
         iconBitmap(R.drawable.ic_threat_marker)?.let { bmp ->
             droneBodyRect.set(
                 threat.pixelX - half,
@@ -833,7 +990,7 @@ class MosaicMapView @JvmOverloads constructor(
         }
         // Mithril always labels threats (other annotations are zoom-gated).
         if (threat.label.isBlank()) return
-        threatLabelPaint.textSize = 16f * inv
+        threatLabelPaint.textSize = (if (focused) 18f else 16f) * inv
         val textWidth = threatLabelPaint.measureText(threat.label)
         val top = threat.pixelY + half + 4f * inv
         val bottom = top + threatLabelPaint.textSize + 6f * inv
@@ -923,7 +1080,8 @@ class MosaicMapView @JvmOverloads constructor(
         canvas.drawCircle(pose.pixelX, pose.pixelY, ringR, headingRingPaint)
 
         // Direction arc + arrow tip on the heading side.
-        val headingDeg = ((pose.headingDegrees % 360f) + 360f) % 360f
+        // Billboards don't rotate with the map, so draw heading relative to the map bearing.
+        val headingDeg = normalizeDeg(screenHeading(pose) - bearing)
         val canvasHeading = headingDeg - 90f
         headingArcRect.set(
             pose.pixelX - ringR,
@@ -997,27 +1155,215 @@ class MosaicMapView @JvmOverloads constructor(
         )
     }
 
+    /** Nearest threat marker under the finger, compared in screen px (focused icon is 2x). */
+    private fun threatAtScreen(screenX: Float, screenY: Float): String? {
+        val focusedId = follow?.takeIf { it.kind == CameraFollow.Kind.THREAT }?.id
+        var bestId: String? = null
+        var bestDist = Float.MAX_VALUE
+        threats.forEach { threat ->
+            if (!project(threat.pixelX, threat.pixelY, screenPt)) return@forEach
+            val d = hypot(screenPt[0] - screenX, screenPt[1] - screenY)
+            val hitR = THREAT_HIT_RADIUS_SCREEN_PX * (if (threat.id == focusedId) FOCUSED_THREAT_SCALE else 1f)
+            if (d <= hitR && d < bestDist) {
+                bestDist = d
+                bestId = threat.id
+            }
+        }
+        return bestId
+    }
+
     private fun droneAtScreen(screenX: Float, screenY: Float): String? {
-        drawMatrix.reset()
-        drawMatrix.postScale(scale, scale)
-        drawMatrix.postTranslate(transX, transY)
-        if (!drawMatrix.invert(invertMatrix)) return null
-        touchPoint[0] = screenX
-        touchPoint[1] = screenY
-        invertMatrix.mapPoints(touchPoint)
-        val worldX = touchPoint[0]
-        val worldY = touchPoint[1]
-        val hitR = (DRONE_BODY_HALF_SCREEN_PX * 2.2f) / scale.coerceAtLeast(0.01f)
+        val hitR = DRONE_BODY_HALF_SCREEN_PX * 2.2f
         var bestId: String? = null
         var bestDist = hitR
         dronePoses.values.forEach { pose ->
-            val d = hypot((pose.pixelX - worldX).toDouble(), (pose.pixelY - worldY).toDouble()).toFloat()
+            if (!project(pose.pixelX, pose.pixelY, screenPt)) return@forEach
+            val d = hypot(screenPt[0] - screenX, screenPt[1] - screenY)
             if (d <= bestDist) {
                 bestDist = d
                 bestId = pose.droneDisplayId
             }
         }
         return bestId
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Navigation view: camera math
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * Toggle the Google-Maps-style navigation camera: map tilted [NAV_TILT_DEG] in perspective,
+     * camera anchored in the lower third, and — while a drone is followed — rotated so the
+     * drone's heading points up, drawn as a navigation arrow. Turning it off eases back to
+     * north-up top-down.
+     */
+    fun setNavigationView(enabled: Boolean) {
+        if (enabled == navEnabled) return
+        navEnabled = enabled
+        navAnimator?.cancel()
+        val fromT = navT
+        val toT = if (enabled) 1f else 0f
+        val fromBearing = bearing
+        // Zoom in on entry (Google driving camera) and return to the prior zoom on exit.
+        val fromScale = scale
+        val toScale = if (enabled) {
+            preNavScale = scale
+            scale.coerceAtLeast(minScale * NAV_ZOOM_MULTIPLIER).coerceAtMost(MAX_SCALE)
+        } else {
+            preNavScale ?: scale
+        }
+        if (!enabled) preNavScale = null
+        navAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = NAV_TRANSITION_MS
+            interpolator = FAST_OUT_SLOW_IN
+            addUpdateListener { anim ->
+                val p = anim.animatedValue as Float
+                // Keep whatever is under the anchor under it while the anchor itself moves.
+                val center = centerWorld()
+                navT = fromT + (toT - fromT) * p
+                scale = fromScale + (toScale - fromScale) * p
+                if (!enabled) bearing = normalizeDeg(fromBearing + shortestAngle(fromBearing, 0f) * p)
+                updateViewMatrix()
+                val followPos = if (!isCameraAnimating) followTargetPos() else null
+                if (followPos != null) {
+                    steerBearingToFollowedDrone()
+                    setCenterWorld(followPos)
+                } else {
+                    setCenterWorld(center)
+                }
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (navAnimator === animation) navAnimator = null
+                }
+            })
+            start()
+        }
+    }
+
+    private fun hasViewTransform(): Boolean = navT > 0.001f || kotlin.math.abs(bearing) > 0.01f
+
+    private fun cameraDistance(): Float = height * NAV_CAMERA_DISTANCE_FACTOR
+
+    /** Rebuilds [viewMatrix] = tilt ∘ rotate(-bearing), both about the anchor. */
+    private fun updateViewMatrix() {
+        val ax = anchorX()
+        val ay = anchorY()
+        viewMatrix.setRotate(-bearing, ax, ay)
+        if (navT > 0.001f && height > 0) {
+            val theta = Math.toRadians((NAV_TILT_DEG * navT).toDouble())
+            tiltValues[Matrix.MSCALE_X] = 1f
+            tiltValues[Matrix.MSKEW_X] = 0f
+            tiltValues[Matrix.MTRANS_X] = 0f
+            tiltValues[Matrix.MSKEW_Y] = 0f
+            tiltValues[Matrix.MSCALE_Y] = cos(theta).toFloat()
+            tiltValues[Matrix.MTRANS_Y] = 0f
+            tiltValues[Matrix.MPERSP_0] = 0f
+            tiltValues[Matrix.MPERSP_1] = (-sin(theta) / cameraDistance()).toFloat()
+            tiltValues[Matrix.MPERSP_2] = 1f
+            tiltMatrix.setValues(tiltValues)
+            tiltMatrix.preTranslate(-ax, -ay)
+            tiltMatrix.postTranslate(ax, ay)
+            viewMatrix.postConcat(tiltMatrix)
+        }
+        invalidate()
+    }
+
+    /**
+     * World (mosaic px) → screen px through scale/translate, rotation and perspective tilt.
+     * False when the point is at/behind the camera's eye plane (not drawable).
+     */
+    private fun project(worldX: Float, worldY: Float, out: FloatArray): Boolean {
+        var x = worldX * scale + transX
+        var y = worldY * scale + transY
+        if (!hasViewTransform()) {
+            out[0] = x
+            out[1] = y
+            return true
+        }
+        val ax = anchorX()
+        val ay = anchorY()
+        // Rotate by -bearing about the anchor.
+        val rad = Math.toRadians(-bearing.toDouble())
+        val c = cos(rad).toFloat()
+        val sn = sin(rad).toFloat()
+        val dx = x - ax
+        val dy = y - ay
+        x = dx * c - dy * sn
+        y = dx * sn + dy * c
+        // Perspective tilt about the anchor's horizontal axis.
+        val theta = Math.toRadians((NAV_TILT_DEG * navT).toDouble())
+        val w = 1f - (sin(theta).toFloat() / cameraDistance()) * y
+        if (w <= EYE_PLANE_EPSILON) return false
+        out[0] = ax + x / w
+        out[1] = ay + (cos(theta).toFloat() * y) / w
+        return true
+    }
+
+    /** Screen px → pre-view space (where transX/transY/scale live). False above the horizon. */
+    private fun unprojectToPre(screenX: Float, screenY: Float, out: FloatArray): Boolean {
+        if (!hasViewTransform()) {
+            out[0] = screenX
+            out[1] = screenY
+            return true
+        }
+        val ax = anchorX()
+        val ay = anchorY()
+        val theta = Math.toRadians((NAV_TILT_DEG * navT).toDouble())
+        val ct = cos(theta).toFloat()
+        val st = sin(theta).toFloat()
+        val d = cameraDistance()
+        val sxr = screenX - ax
+        val syr = screenY - ay
+        // Inverse of Y = ct*y / (1 - st*y/d)  →  y = Y / (ct + Y*st/d).
+        val denom = ct + syr * st / d
+        if (denom <= EYE_PLANE_EPSILON) return false
+        val y = syr / denom
+        val x = sxr * (1f - st * y / d)
+        // Undo the rotation (rotate by +bearing).
+        val rad = Math.toRadians(bearing.toDouble())
+        val c = cos(rad).toFloat()
+        val sn = sin(rad).toFloat()
+        out[0] = ax + x * c - y * sn
+        out[1] = ay + x * sn + y * c
+        return true
+    }
+
+    /** Pre-view-space bounds of the screen (for clipping perspective drawing). */
+    private fun computePreViewBounds(out: RectF): Boolean {
+        if (width == 0 || height == 0) return false
+        var any = false
+        out.setEmpty()
+        for (corner in 0 until 4) {
+            val sx = if (corner % 2 == 0) 0f else width.toFloat()
+            val sy = if (corner < 2) 0f else height.toFloat()
+            if (!unprojectToPre(sx, sy, prePt)) return false
+            if (!any) {
+                out.set(prePt[0], prePt[1], prePt[0], prePt[1])
+                any = true
+            } else {
+                out.union(prePt[0], prePt[1])
+            }
+        }
+        return any
+    }
+
+    /** World-space bounding box of everything on screen (wider than the screen when tilted). */
+    private fun computeVisibleWorld(out: RectF): Boolean {
+        if (width == 0 || height == 0 || scale <= 0f) return false
+        if (!computePreViewBounds(out)) return false
+        out.set(
+            (out.left - transX) / scale,
+            (out.top - transY) / scale,
+            (out.right - transX) / scale,
+            (out.bottom - transY) / scale,
+        )
+        return true
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        updateViewMatrix()
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -1031,8 +1377,10 @@ class MosaicMapView @JvmOverloads constructor(
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             onUserGesture()
             val factor = detector.scaleFactor
-            val focusX = detector.focusX
-            val focusY = detector.focusY
+            // Zoom about the finger's point on the (possibly tilted/rotated) map.
+            if (!unprojectToPre(detector.focusX, detector.focusY, prePt)) return true
+            val focusX = prePt[0]
+            val focusY = prePt[1]
             val newScale = (scale * factor).coerceIn(MIN_SCALE, MAX_SCALE)
             val ratio = newScale / scale
             transX = focusX - (focusX - transX) * ratio
@@ -1047,8 +1395,13 @@ class MosaicMapView @JvmOverloads constructor(
         override fun onDown(e: MotionEvent): Boolean = true
 
         override fun onSingleTapUp(e: MotionEvent): Boolean {
-            val id = droneAtScreen(e.x, e.y) ?: return false
-            onDroneTapped?.invoke(id)
+            // Threats are drawn under drones; prefer the drone when both are hit.
+            droneAtScreen(e.x, e.y)?.let { id ->
+                onDroneTapped?.invoke(id)
+                return true
+            }
+            val threatId = threatAtScreen(e.x, e.y) ?: return false
+            onThreatTapped?.invoke(threatId)
             return true
         }
 
@@ -1060,8 +1413,13 @@ class MosaicMapView @JvmOverloads constructor(
         ): Boolean {
             if (scaleDetector.isInProgress) return false
             onUserGesture()
-            transX -= distanceX
-            transY -= distanceY
+            // Drag the ground point under the finger with it, also when tilted/rotated.
+            if (!unprojectToPre(e2.x + distanceX, e2.y + distanceY, prePt)) return true
+            val prevX = prePt[0]
+            val prevY = prePt[1]
+            if (!unprojectToPre(e2.x, e2.y, prePt)) return true
+            transX += prePt[0] - prevX
+            transY += prePt[1] - prevY
             onViewportChanged()
             return true
         }
@@ -1082,6 +1440,8 @@ class MosaicMapView @JvmOverloads constructor(
         super.onDetachedFromWindow()
         context.applicationContext.unregisterComponentCallbacks(memoryCallbacks)
         stopCameraAnimation()
+        navAnimator?.cancel()
+        navAnimator = null
         clearTiles()
         clearOverview()
     }
@@ -1100,6 +1460,34 @@ class MosaicMapView @JvmOverloads constructor(
         private val FAST_OUT_SLOW_IN = PathInterpolator(0.4f, 0f, 0.2f, 1f)
         /** Half-size of the drone body in screen pixels (constant across zoom). */
         private const val DRONE_BODY_HALF_SCREEN_PX = 36f
+        private const val THREAT_HIT_RADIUS_SCREEN_PX = 40f
+        /** Mithril: followed threat icon is drawn at 2x. */
+        private const val FOCUSED_THREAT_SCALE = 2f
+
+        // Navigation view (Google Maps driving camera).
+        private const val NAV_TILT_DEG = 45f
+        /** Navigation view zooms to at least fit * this (2D locate uses fit * 2.5). */
+        private const val NAV_ZOOM_MULTIPLIER = 5f
+        /** Unreal yaw (0° = +X = screen-right) → map heading (0° = screen-up). */
+        private const val YAW_TO_SCREEN_HEADING_DEG = 90f
+        /** Camera anchor sits ~2/3 down the screen when tilted, so more road ahead is visible. */
+        private const val NAV_ANCHOR_Y_FRAC = 0.68f
+        /** Eye distance as a multiple of view height — keeps the horizon above the screen. */
+        private const val NAV_CAMERA_DISTANCE_FACTOR = 1.3f
+        private const val NAV_TRANSITION_MS = 600L
+        private const val NAV_ARROW_RADIUS_DP = 22f
+        /** Per-telemetry-update easing of the map rotation toward the drone heading. */
+        private const val BEARING_SMOOTHING = 0.2f
+        private const val EYE_PLANE_EPSILON = 0.05f
+        private val NAV_ARROW_COLOR = Color.parseColor("#297FFF")
+
+        private fun normalizeDeg(deg: Float): Float = ((deg % 360f) + 360f) % 360f
+
+        /** Signed smallest rotation from [from] to [to], in (-180, 180]. */
+        private fun shortestAngle(from: Float, to: Float): Float {
+            val d = normalizeDeg(to - from)
+            return if (d > 180f) d - 360f else d
+        }
 
         // Tile pipeline limits (Mithril MithrilMapEngine).
         private const val MAX_TILE_CACHE_BYTES = 128L * 1024L * 1024L

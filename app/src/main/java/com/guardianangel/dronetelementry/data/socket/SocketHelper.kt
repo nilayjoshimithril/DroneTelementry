@@ -26,6 +26,13 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -43,6 +50,11 @@ sealed interface SocketEvent {
     data object Reconnecting : SocketEvent
     /** A threat id seen for the first time via `threat-added` (not session-detail sync). */
     data class ThreatIdentified(val threatId: String) : SocketEvent
+    /**
+     * Incident closed (Mithril applyIncidentLifecycle RESOLVED / FALSE_ALARM, or the server
+     * refusing `session-detail` for a session that no longer exists). Emitted once per connect().
+     */
+    data class IncidentEnded(val status: String, val source: String) : SocketEvent
 }
 
 /**
@@ -62,9 +74,12 @@ class SocketHelper(
     private var webSocket: WebSocket? = null
     private var reconnectJob: Job? = null
     private var urlProvider: (suspend () -> String)? = null
+    /** Mithril `session-detail` publish payload (user_id, user_role) — see [requestSessionDetail]. */
+    private var sessionIdentityProvider: (suspend () -> Pair<String?, String?>)? = null
     private var attempt = 0
     private var telemetryLogCounter = 0
     private val manualClose = AtomicBoolean(false)
+    private val incidentEnded = AtomicBoolean(false)
     private val opening = AtomicBoolean(false)
 
     private val _events = MutableSharedFlow<SocketEvent>(
@@ -87,10 +102,15 @@ class SocketHelper(
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
-    fun connect(urlProvider: suspend () -> String) {
+    fun connect(
+        sessionIdentityProvider: (suspend () -> Pair<String?, String?>)? = null,
+        urlProvider: suspend () -> String,
+    ) {
         AppLog.i(TAG, "connect() requested")
         manualClose.set(false)
+        incidentEnded.set(false)
         this.urlProvider = urlProvider
+        this.sessionIdentityProvider = sessionIdentityProvider
         attempt = 0
         reconnectJob?.cancel()
         scope.launch { openSocket(immediate = true) }
@@ -118,6 +138,7 @@ class SocketHelper(
         reconnectJob?.cancel()
         reconnectJob = null
         urlProvider = null
+        sessionIdentityProvider = null
         closeQuietly()
         _connected.value = false
         _drones.value = emptyMap()
@@ -127,7 +148,7 @@ class SocketHelper(
 
     fun publish(channel: String, payloadJson: String) {
         val frame = """{"channel":"$channel","payload":$payloadJson}"""
-        AppLog.d(TAG, "publish channel=$channel payload=$payloadJson")
+        AppLog.full(RAW_TAG, ">> $frame")
         webSocket?.send(frame)
     }
 
@@ -200,7 +221,10 @@ class SocketHelper(
             attempt = 0
             _connected.value = true
             AppLog.i(TAG, "WS onOpen code=${response.code}")
-            scope.launch { _events.emit(SocketEvent.Connected) }
+            scope.launch {
+                _events.emit(SocketEvent.Connected)
+                requestSessionDetail("onOpen")
+            }
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -243,6 +267,7 @@ class SocketHelper(
     }
 
     private suspend fun handleMessage(text: String) {
+        AppLog.full(RAW_TAG, "<< $text")
         val envelope = runCatching {
             json.decodeFromString<SocketEnvelopeDto>(text)
         }.getOrElse {
@@ -259,6 +284,7 @@ class SocketHelper(
                 _connected.value = true
                 attempt = 0
                 _events.emit(SocketEvent.Connected)
+                requestSessionDetail("connection_success")
             }
             "connection_failed" -> {
                 AppLog.e(TAG, "channel=connection_failed payload=${envelope.payload}")
@@ -274,6 +300,24 @@ class SocketHelper(
             "on-session-detail" -> {
                 sendAck(envelope.id)
                 parseSessionDetail(envelope)
+            }
+            "on-incident-status" -> {
+                sendAck(envelope.id)
+                val status = (envelope.payload as? JsonObject)?.get("status")
+                    ?.jsonPrimitive?.contentOrNull
+                AppLog.i(TAG, "channel=on-incident-status status=$status")
+                if (status != null) onIncidentStatus(status, "on-incident-status")
+            }
+            "ack" -> {
+                // Mithril: a session-detail request refused (delivery_status=false) means the
+                // incident is gone — treat it as ended.
+                val ack = envelope.payload as? JsonObject
+                val ackChannel = ack?.get("channel")?.jsonPrimitive?.contentOrNull
+                val delivered = ack?.get("delivery_status")?.jsonPrimitive?.booleanOrNull
+                if (ackChannel == "session-detail" && delivered == false) {
+                    AppLog.w(TAG, "session-detail not delivered — incident no longer active")
+                    onIncidentStatus("RESOLVED", "ack:session-detail")
+                }
             }
             "threat-added" -> {
                 sendAck(envelope.id)
@@ -313,6 +357,23 @@ class SocketHelper(
         }
     }
 
+    /**
+     * Mithril [sendSocketSessionSync]: the server only pushes the `on-session-detail` snapshot
+     * (threats + color pathways already on the incident) when the client asks for it. Without
+     * this, threats/pathways created before this client joined never show up.
+     */
+    private suspend fun requestSessionDetail(reason: String) {
+        if (manualClose.get()) return
+        val (userId, role) = runCatching { sessionIdentityProvider?.invoke() }
+            .getOrNull() ?: (null to null)
+        val payload = buildJsonObject {
+            put("user_role", role?.let(::JsonPrimitive) ?: JsonNull)
+            put("user_id", userId?.let(::JsonPrimitive) ?: JsonNull)
+        }
+        AppLog.i(TAG, "request session-detail ($reason) userId=${AppLog.redact(userId)} role=$role")
+        publish("session-detail", payload.toString())
+    }
+
     /** Mithril acks reliable channels so the server stops redelivering them. */
     private fun sendAck(id: String?) {
         if (id.isNullOrBlank()) return
@@ -327,8 +388,16 @@ class SocketHelper(
         }
     }
 
+    private suspend fun onIncidentStatus(status: String, source: String) {
+        val normalized = status.uppercase()
+        if (normalized != "RESOLVED" && normalized != "FALSE_ALARM") return
+        if (!incidentEnded.compareAndSet(false, true)) return
+        AppLog.i(TAG, "Incident ended status=$normalized source=$source")
+        _events.emit(SocketEvent.IncidentEnded(normalized, source))
+    }
+
     /** Session detail is a full snapshot — replaces threats + pathways wholesale. */
-    private fun parseSessionDetail(envelope: SocketEnvelopeDto) {
+    private suspend fun parseSessionDetail(envelope: SocketEnvelopeDto) {
         val detail = decodePayload<SessionDetailDto>(envelope) ?: return
         val threats = detail.threats.orEmpty().filter { it.threatId.isNotBlank() }
         val pathways = detail.colorPathways.orEmpty().filter { !it.splineId.isNullOrBlank() }
@@ -339,6 +408,7 @@ class SocketHelper(
         )
         _threats.value = sortedByTimestamp(threats.associateBy { it.threatId })
         _colorPathways.value = pathways.associateBy { it.splineId.orEmpty() }
+        detail.incidentStatus?.let { onIncidentStatus(it, "on-session-detail") }
     }
 
     private fun sortedByTimestamp(threats: Map<String, ThreatDto>): Map<String, ThreatDto> =
@@ -395,6 +465,7 @@ class SocketHelper(
                 escStatus = dto.escStatus,
                 batteryUnitStatus = dto.batteryUnitStatus,
                 motorStatus = dto.motorStatus,
+                pilotId = dto.pilotId,
             )
         }
         _drones.value = merged
@@ -410,6 +481,8 @@ class SocketHelper(
 
     companion object {
         private const val TAG = "Socket"
+        /** Every inbound (<<) / outbound (>>) frame, unabridged. Filter Logcat by `DroneTel/SocketRaw`. */
+        private const val RAW_TAG = "SocketRaw"
 
         fun buildWsUrl(httpsBaseUrl: String, ticket: String, incidentId: String): String {
             val wssBase = httpsBaseUrl

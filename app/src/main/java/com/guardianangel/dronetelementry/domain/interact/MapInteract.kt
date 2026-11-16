@@ -1,5 +1,7 @@
 package com.guardianangel.dronetelementry.domain.interact
 
+import com.guardianangel.dronetelementry.data.local.SessionStore
+import com.guardianangel.dronetelementry.data.model.CampusDroneDto
 import com.guardianangel.dronetelementry.data.model.MapConfigResponseDto
 import com.guardianangel.dronetelementry.data.model.MosaicAnnotationDto
 import com.guardianangel.dronetelementry.data.model.WsTicketRequestDto
@@ -8,7 +10,23 @@ import com.guardianangel.dronetelementry.utils.AppLog
 
 class MapInteract(
     private val api: ApiService,
+    private val sessionStore: SessionStore,
 ) {
+    /**
+     * Mithril `session-detail` publish payload: logged-in user id + the role on the active
+     * campus's district (falls back to the user-level role).
+     */
+    suspend fun sessionIdentity(): Pair<String?, String?> {
+        val user = sessionStore.getAccessTokenResponse()?.userDetail ?: return null to null
+        val districtId = sessionStore.getDistrictId()
+        val campusId = sessionStore.getCampusId()
+        val role = user.campuses.orEmpty().let { campuses ->
+            campuses.find { it.id == campusId }?.roleName
+                ?: campuses.find { it.districtId == districtId }?.roleName
+        } ?: user.role
+        return user.id.takeIf { it.isNotBlank() } to role
+    }
+
     suspend fun loadMapConfig(campusId: String): MapConfigResponseDto {
         AppLog.i(TAG, "API GET campuses/maps/$campusId")
         val response = api.getCampusMap(campusId)
@@ -57,6 +75,43 @@ class MapInteract(
         return all
     }
 
+    /**
+     * Every drone of [campusId], walking all pages of `campuses/drones/` (large page size, so
+     * normally one request). Rows for other campuses are dropped in case the filter is ignored.
+     */
+    suspend fun loadCampusDrones(campusId: String): List<CampusDroneDto> {
+        val all = mutableListOf<CampusDroneDto>()
+        var page = 1
+        var totalPages: Int
+        do {
+            AppLog.i(TAG, "API GET campuses/drones/?campus_id=$campusId&page=$page&limit=$DRONE_PAGE_SIZE")
+            val response = api.getCampusDrones(campusId, page = page, limit = DRONE_PAGE_SIZE)
+            if (response.error == true) {
+                throw IllegalStateException(response.message ?: "Failed to load drones")
+            }
+            val chunk = response.data?.data.orEmpty()
+            all += chunk
+            val meta = response.data?.meta
+            val limit = meta?.limit?.takeIf { it > 0 } ?: chunk.size.coerceAtLeast(1)
+            val total = meta?.total ?: all.size
+            val currentPage = meta?.page?.takeIf { it > 0 } ?: page
+            totalPages = ((total + limit - 1) / limit).coerceAtLeast(1)
+            AppLog.d(TAG, "drones page=$currentPage/$totalPages total=$total chunk=${chunk.size}")
+            // Guard against a server that keeps returning the same page.
+            if (chunk.isEmpty()) break
+            page = currentPage + 1
+        } while (page <= totalPages)
+
+        val campusDrones = all
+            .filter { it.campusId.isNullOrBlank() || it.campusId.equals(campusId, ignoreCase = true) }
+            .distinctBy { it.id.ifBlank { it.displayId } }
+        AppLog.i(TAG, "drones loaded campus=$campusId count=${campusDrones.size} (fetched ${all.size})")
+        return campusDrones
+    }
+
+    /** Saved default map zoom (multiple of "fit campus"), or [DEFAULT_MAP_ZOOM]. */
+    suspend fun mapZoomLevel(): Float = sessionStore.getMapZoomLevel() ?: DEFAULT_MAP_ZOOM
+
     suspend fun refreshWsTicket(incidentId: String): String {
         AppLog.i(TAG, "API POST incidents/ws-ticket incident_id=$incidentId")
         val response = api.getWsTicket(WsTicketRequestDto(incidentId))
@@ -73,5 +128,11 @@ class MapInteract(
 
     companion object {
         private const val TAG = "MapApi"
+        private const val DRONE_PAGE_SIZE = 100
+
+        /** Map opens fitted to the whole campus. */
+        const val DEFAULT_MAP_ZOOM = 1f
+        const val MIN_MAP_ZOOM = 1f
+        const val MAX_MAP_ZOOM = 6f
     }
 }

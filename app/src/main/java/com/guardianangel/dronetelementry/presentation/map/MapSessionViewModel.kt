@@ -16,6 +16,8 @@ import com.guardianangel.dronetelementry.map.ColorPathway
 import com.guardianangel.dronetelementry.map.FloorPlanTransform
 import com.guardianangel.dronetelementry.map.GeoProjector
 import com.guardianangel.dronetelementry.map.METERS_PER_FLOOR
+import com.guardianangel.dronetelementry.data.model.CampusDroneDto
+import com.guardianangel.dronetelementry.data.remote.IncidentEndedNotice
 import com.guardianangel.dronetelementry.map.MapThreat
 import com.guardianangel.dronetelementry.map.OUTDOOR_BUILDING_ID
 import com.guardianangel.dronetelementry.map.OUTDOOR_FLOOR_ID
@@ -42,9 +44,10 @@ import com.guardianangel.dronetelementry.map.normalizedForMapConfig
 import com.guardianangel.dronetelementry.map.outdoorTransform
 import com.guardianangel.dronetelementry.map.resolveDroneMapPlacement
 import com.guardianangel.dronetelementry.map.shouldShowDroneOnLayer
+import com.guardianangel.dronetelementry.map.segmentsForLayer
 import com.guardianangel.dronetelementry.map.toColorPathway
+import com.guardianangel.dronetelementry.map.toRenders
 import com.guardianangel.dronetelementry.map.toMapThreat
-import com.guardianangel.dronetelementry.map.toRender
 import com.guardianangel.dronetelementry.map.toTransform
 import com.guardianangel.dronetelementry.map.unrealFootprintFromTransform
 import com.guardianangel.dronetelementry.map.unrealFromFloorPlanPixel
@@ -90,6 +93,8 @@ data class BuildingListItem(
     val id: String,
     val name: String,
     val floorCount: Int,
+    /** Mithril MapBuildingPicker BuildingStatus.CRITICAL — an active threat is in this building. */
+    val hasThreat: Boolean = false,
 )
 
 data class FloorListItem(
@@ -121,6 +126,22 @@ data class MapSessionUiState(
      * [CameraFollow.nonce] changes, then re-centres in the same frame each time the marker moves.
      */
     val cameraFollow: CameraFollow? = null,
+    /** Active threats — badge on the Mithril locate-threat button (button disabled at 0). */
+    val threatCount: Int = 0,
+    /** Google-Maps-style tilted, heading-up camera. */
+    val navigationView: Boolean = false,
+    /** Settings → Map zoom level: zoom each layer opens at (multiple of fit). */
+    val defaultZoom: Float = MapInteract.DEFAULT_MAP_ZOOM,
+) {
+    val followedThreatId: String?
+        get() = cameraFollow?.takeIf { it.kind == CameraFollow.Kind.THREAT }?.id
+}
+
+/** Row in the Mithril ThreatSelectionDialog: name + "Building | Floor". */
+data class ThreatListItem(
+    val id: String,
+    val name: String,
+    val location: String,
 )
 
 data class ThreatBannerUi(
@@ -164,6 +185,14 @@ class MapSessionViewModel(
     private val _overlays = MutableStateFlow(MapOverlays())
     val overlays: StateFlow<MapOverlays> = _overlays.asStateFlow()
 
+    private val _droneRoster = MutableStateFlow<Map<String, CampusDroneDto>>(emptyMap())
+    /** Campus drones by display_id — type, roster status, weapons, stream URL. */
+    val droneRoster: StateFlow<Map<String, CampusDroneDto>> = _droneRoster.asStateFlow()
+
+    private val _incidentEnded = MutableSharedFlow<IncidentEndedNotice>(replay = 1)
+    /** One-shot: the incident closed while this screen was open — navigate Home. */
+    val incidentEnded: SharedFlow<IncidentEndedNotice> = _incidentEnded.asSharedFlow()
+
     private val _focusDrone = MutableSharedFlow<String>(
         extraBufferCapacity = 1,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
@@ -196,6 +225,10 @@ class MapSessionViewModel(
     private var colorPathways: List<ColorPathway> = emptyList()
     private var threatBannerJob: Job? = null
     private var followNonce = 0L
+    /** Logged-in user id — matched against drone `pilot_id` for the default focus. */
+    private var currentUserId: String? = null
+    /** The pilot's own drone is auto-focused once per session; afterwards the user is in control. */
+    private var pilotAutoFocusDone = false
 
     init {
         AppLog.i(
@@ -227,6 +260,7 @@ class MapSessionViewModel(
                     is SocketEvent.Failed ->
                         _state.update { it.copy(statusMessage = "Reconnecting… (${event.reason})") }
                     is SocketEvent.ThreatIdentified -> showThreatBanner(event.threatId)
+                    is SocketEvent.IncidentEnded -> onIncidentEnded(event.status)
                     else -> Unit
                 }
             }
@@ -239,16 +273,26 @@ class MapSessionViewModel(
                     AppLog.d(TAG, "Telemetry sample count=${drones.size} ids=${drones.keys}")
                 }
                 publishDrones()
+                autoFocusPilotDrone()
                 followSelectedDroneIfNeeded()
             }
         }
         viewModelScope.launch {
             socketHelper.threats.collect { threats ->
                 activeThreats = threats.values.map { it.toMapThreat(mapConfig, campusId) }
-                AppLog.d(TAG, "threats=${activeThreats.map { "${it.id}@${it.buildingId}/${it.floorId}" }}")
+                AppLog.d(
+                    TAG,
+                    "threats=" + threats.values.zip(activeThreats).joinToString { (raw, t) ->
+                        "${t.name}(${t.id}) raw=${raw.building?.firstOrNull()}/${raw.floors?.firstOrNull()} " +
+                            "→ ${t.buildingId}/${t.floorId}"
+                    },
+                )
                 val banner = _state.value.threatBanner
                 if (banner != null && activeThreats.none { it.id == banner.threatId }) {
                     dismissThreatBanner()
+                }
+                _state.update {
+                    it.copy(threatCount = activeThreats.size, buildings = withThreatFlags(it.buildings))
                 }
                 followThreatAcrossLayersIfNeeded()
                 publishOverlays()
@@ -286,6 +330,12 @@ class MapSessionViewModel(
                 }
                 return
             }
+
+            // Saved zoom must be in state before the first layer is configured.
+            val zoom = runCatching { mapInteract.mapZoomLevel() }.getOrDefault(MapInteract.DEFAULT_MAP_ZOOM)
+            _state.update { it.copy(defaultZoom = zoom) }
+            currentUserId = runCatching { mapInteract.sessionIdentity().first }.getOrNull()
+            viewModelScope.launch { loadDroneRoster() }
 
             val annotations = runCatching {
                 mapInteract.loadAnnotations(campusId).map { ann ->
@@ -327,7 +377,7 @@ class MapSessionViewModel(
                 it.copy(
                     loading = false,
                     campusName = campusName,
-                    buildings = buildings,
+                    buildings = withThreatFlags(buildings),
                     mapUnavailable = false,
                     error = null,
                 )
@@ -495,7 +545,7 @@ class MapSessionViewModel(
         publishOverlays()
     }
 
-    /** Pathways draw on every layer (Mithril floor guard disabled); threats filter by floor. */
+    /** Pathways draw only the chunks on the selected floor (all on outdoor); threats filter by floor. */
     private fun publishOverlays() {
         val xf = transform
         if (xf == null) {
@@ -503,9 +553,12 @@ class MapSessionViewModel(
             return
         }
         val ui = _state.value
-        val pathways = colorPathways
-            .filter { it.isVisibleOnLayer() }
-            .map { it.toRender(xf) }
+        val pathways = colorPathways.flatMap { pathway ->
+            pathway.toRenders(
+                xf,
+                pathway.segmentsForLayer(mapConfig, ui.selectedBuildingId, ui.selectedFloorId),
+            )
+        }
         val threats = activeThreats
             .filter { it.isVisibleOnLayer(mapConfig, ui.selectedBuildingId, ui.selectedFloorId) }
             .map { threat ->
@@ -575,6 +628,123 @@ class MapSessionViewModel(
      * following it. Drops drone follow first, otherwise the next telemetry tick would switch
      * layers back.
      */
+    /**
+     * Mithril ThreatSelectionDialog rows, natural-sorted by name ("Threat_2" before "Threat_10").
+     */
+    fun threatListItems(): List<ThreatListItem> {
+        val config = mapConfig
+        return activeThreats
+            .sortedWith(
+                compareBy<MapThreat> { it.name.replace(TRAILING_NUMBER, "") }
+                    .thenBy { TRAILING_NUMBER.find(it.name)?.value?.toLongOrNull() ?: 0L },
+            )
+            .map { threat ->
+                val location = if (threat.buildingId.equals(OUTDOOR_BUILDING_ID, ignoreCase = true)) {
+                    "Outdoor"
+                } else {
+                    val building = findBuilding(config, threat.buildingId)
+                    val buildingName = building?.name?.ifBlank { null } ?: threat.buildingId
+                    val floorLabel = building?.floors
+                        ?.find { it.floorId.equals(threat.floorId, ignoreCase = true) }
+                        ?.floorLabel?.ifBlank { null }
+                        ?: threat.floorId
+                    "$buildingName | $floorLabel"
+                }
+                ThreatListItem(id = threat.id, name = threat.name, location = location)
+            }
+    }
+
+    /**
+     * Mithril locate-threat button: one threat → focus it; picking the already-followed threat
+     * from the list clears the focus instead.
+     */
+    fun onThreatSelected(threatId: String) {
+        if (_state.value.followedThreatId == threatId) {
+            AppLog.i(TAG, "Threat $threatId already focused — clearing focus")
+            clearCameraFollow(CameraFollow.Kind.THREAT, threatId)
+        } else {
+            locateThreat(threatId)
+        }
+    }
+
+    /** Campus drone roster (`campuses/drones/`, all pages); failures keep the map usable. */
+    private suspend fun loadDroneRoster() {
+        runCatching { mapInteract.loadCampusDrones(campusId) }
+            .onSuccess { drones ->
+                _droneRoster.value = drones
+                    .filter { it.displayId.isNotBlank() }
+                    .associateBy { it.displayId }
+                AppLog.i(
+                    TAG,
+                    "Drone roster: " + drones.joinToString { "${it.displayId}(${it.type}/${it.status} pilot=${it.pilotId})" },
+                )
+                autoFocusPilotDrone()
+            }
+            .onFailure { AppLog.w(TAG, "Drone roster load failed — list shows telemetry only", it) }
+    }
+
+    /**
+     * Default focus: once the map layer is up, select + follow the drone whose `pilot_id` is the
+     * logged-in user (roster or telemetry). Waits until that drone is reporting telemetry, and
+     * never overrides a drone the user already picked.
+     */
+    private fun autoFocusPilotDrone() {
+        if (pilotAutoFocusDone) return
+        val userId = currentUserId?.takeIf { it.isNotBlank() } ?: return
+        if (_state.value.mosaic == null) return
+        if (_state.value.selectedDroneId != null) {
+            pilotAutoFocusDone = true
+            return
+        }
+        fun isMine(pilotId: String?) = pilotId?.equals(userId, ignoreCase = true) == true
+        val demoTelemetry = demoDrones.mapNotNull { it.telemetry }
+        val tracked = liveTelemetry.keys + demoTelemetry.map { it.displayId }
+        val candidates = linkedSetOf<String>().apply {
+            liveTelemetry.values.filter { isMine(it.pilotId) }.mapTo(this) { it.displayId }
+            demoTelemetry.filter { isMine(it.pilotId) }.mapTo(this) { it.displayId }
+            _droneRoster.value.values.filter { isMine(it.pilotId) }.mapTo(this) { it.displayId }
+        }
+        val droneId = candidates.firstOrNull { it in tracked } ?: return
+        pilotAutoFocusDone = true
+        AppLog.i(TAG, "Auto-focusing pilot drone $droneId (pilot_id=$userId)")
+        toggleDroneExpanded(droneId, fromMap = true)
+    }
+
+    /** Mithril MapBuildingPicker: flag outdoor/buildings that hold an active threat. */
+    private fun withThreatFlags(items: List<BuildingListItem>): List<BuildingListItem> =
+        items.map { item ->
+            val hasThreat = activeThreats.any { threat ->
+                threat.buildingId.equals(item.id, ignoreCase = true) ||
+                    threat.buildingId.equals(item.name, ignoreCase = true)
+            }
+            if (item.hasThreat == hasThreat) item else item.copy(hasThreat = hasThreat)
+        }
+
+    fun toggleNavigationView() {
+        val enabled = !_state.value.navigationView
+        AppLog.i(TAG, "navigationView=$enabled")
+        _state.update { it.copy(navigationView = enabled) }
+    }
+
+    /**
+     * Mithril applyIncidentLifecycle(RESOLVED/FALSE_ALARM): leave the session and send the user
+     * Home, where the "Alarm Ended" dialog explains why.
+     */
+    private fun onIncidentEnded(status: String) {
+        viewModelScope.launch {
+            val role = runCatching { mapInteract.sessionIdentity().second }.getOrNull()
+            val notice = IncidentEndedNotice(
+                incidentId = incidentId,
+                campusName = _state.value.campusName.ifBlank { "Campus" },
+                status = status,
+                isLawEnforcement = role.equals(LAW_ENFORCEMENT_ROLE, ignoreCase = true),
+            )
+            AppLog.i(TAG, "Incident ended ($status) — leaving map session")
+            socketHelper.disconnect()
+            _incidentEnded.emit(notice)
+        }
+    }
+
     fun locateThreat(threatId: String? = _state.value.threatBanner?.threatId) {
         val threat = activeThreats.find { it.id == threatId } ?: activeThreats.lastOrNull() ?: return
         AppLog.i(TAG, "locateThreat id=${threat.id} → ${threat.buildingId} | ${threat.floorId}")
@@ -613,6 +783,7 @@ class MapSessionViewModel(
                 advanceDemoActor(actor, pathXf, play, now, dtSec)
             }
             publishDrones()
+            autoFocusPilotDrone()
             followSelectedDroneIfNeeded()
         }
     }
@@ -749,6 +920,7 @@ class MapSessionViewModel(
             escStatus = profile.escStatus,
             batteryUnitStatus = profile.batteryUnitStatus,
             motorStatus = profile.motorStatus,
+            pilotId = currentUserId.takeIf { profile.pilotedByCurrentUser },
         )
     }
 
@@ -966,13 +1138,6 @@ class MapSessionViewModel(
             }.toMap()
         }
         ensureDroneSelectionTracked(allTelemetry.keys)
-        if (poseLogCounter % 30 == 1) {
-            AppLog.d(
-                TAG,
-                "Map poses building=${ui.selectedBuildingId} floor=${ui.selectedFloorId} " +
-                    "visible=${visible.size}/${allTelemetry.size} ids=${visible.keys}",
-            )
-        }
         _drones.value = visible
     }
 
@@ -1057,7 +1222,7 @@ class MapSessionViewModel(
 
     private fun connectSocket() {
         firstConnect.set(true)
-        socketHelper.connect {
+        socketHelper.connect(sessionIdentityProvider = { mapInteract.sessionIdentity() }) {
             val ticket = if (firstConnect.compareAndSet(true, false)) {
                 AppLog.d(TAG, "Using initial join ws ticket")
                 initialTicket
@@ -1177,6 +1342,8 @@ class MapSessionViewModel(
         val escStatus: String,
         val batteryUnitStatus: String,
         val motorStatus: String,
+        /** Demo stand-in for `pilot_id`: this unit reports the logged-in user as its pilot. */
+        val pilotedByCurrentUser: Boolean = false,
     )
 
     companion object {
@@ -1185,6 +1352,12 @@ class MapSessionViewModel(
         const val DEMO_DRONE_ID = "DEMO-01"
         /** Touring drone dwell on each outdoor/floor stop. */
         private const val DEMO_FLOOR_DWELL_MS = 8_000L
+        /** Mithril UserRole.LAW_ENFORCEMENT_LABEL. */
+        private const val LAW_ENFORCEMENT_ROLE = "Law Enforcement"
+
+        /** Trailing digits of a threat name, for natural sorting. */
+        private val TRAILING_NUMBER = Regex("(\\d+)$")
+
         /** Mithril MapViewModel.onThreatAdded hides the overlay after 5 s. */
         private const val THREAT_BANNER_DURATION_MS = 5_000L
         /** Keep paths off mosaic letterbox when campus footprints are unavailable. */
@@ -1198,6 +1371,7 @@ class MapSessionViewModel(
             DemoDroneProfile(
                 id = "DEMO-01",
                 placement = DemoPlacement.OUTDOOR,
+                pilotedByCurrentUser = true,
                 pathStyle = DemoPathStyle.OVAL_HORIZONTAL,
                 droneIp = "10.0.0.11",
                 state = "ACTIVE",

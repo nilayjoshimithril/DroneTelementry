@@ -11,6 +11,8 @@ import com.guardianangel.dronetelementry.data.socket.SocketHelper
 import com.guardianangel.dronetelementry.domain.interact.AuthInteract
 import com.guardianangel.dronetelementry.domain.interact.HomeInteract
 import com.guardianangel.dronetelementry.domain.interact.MapInteract
+import com.guardianangel.dronetelementry.presentation.settings.SettingsViewModel
+import com.guardianangel.dronetelementry.presentation.settings.ZoomPreviewViewModel
 import com.guardianangel.dronetelementry.presentation.home.HomeViewModel
 import com.guardianangel.dronetelementry.presentation.map.MapSessionViewModel
 import com.guardianangel.dronetelementry.presentation.onboarding.OnboardingViewModel
@@ -126,10 +128,12 @@ val appModule = module {
 
     single { AuthInteract(get(), get()) }
     single { HomeInteract(get(), get()) }
-    single { MapInteract(get()) }
+    single { MapInteract(get(), get()) }
 
     viewModel { SplashViewModel(get()) }
     viewModel { OnboardingViewModel(get(), get()) }
     viewModel { HomeViewModel(get(), get(), get()) }
     viewModel { MapSessionViewModel(get(), get(), get()) }
+    viewModel { SettingsViewModel(get(), get(), get()) }
+    viewModel { ZoomPreviewViewModel(get(), get(), get()) }
 }

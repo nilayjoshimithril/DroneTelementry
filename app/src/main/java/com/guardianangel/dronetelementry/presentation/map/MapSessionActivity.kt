@@ -2,7 +2,12 @@ package com.guardianangel.dronetelementry.presentation.map
 
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.os.Bundle
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
 import android.widget.ArrayAdapter
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
@@ -20,6 +25,7 @@ import com.guardianangel.dronetelementry.data.remote.SessionEvents
 import com.guardianangel.dronetelementry.databinding.ActivityMapSessionBinding
 import com.guardianangel.dronetelementry.domain.model.DroneMapPose
 import com.guardianangel.dronetelementry.utils.AppLog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import org.koin.android.ext.android.inject
@@ -65,6 +71,10 @@ class MapSessionActivity : AppCompatActivity() {
         binding.buildingList.adapter = buildingAdapter
         binding.mosaicMap.onDroneTapped = { id -> viewModel.toggleDroneExpanded(id, fromMap = true) }
         binding.mosaicMap.onUserInteraction = { viewModel.onMapUserInteraction() }
+        // Mithril onAnnotationClick(THREAT) → performLocateThreat(shouldFocus = true).
+        binding.mosaicMap.onThreatTapped = { id -> viewModel.locateThreat(id) }
+        binding.btnLocateThreat.setOnClickListener { onLocateThreatClicked() }
+        binding.btnNavView.setOnClickListener { viewModel.toggleNavigationView() }
 
         floorAdapter = ArrayAdapter(
             this,
@@ -129,6 +139,7 @@ class MapSessionActivity : AppCompatActivity() {
                         refreshDroneUi(state.selectedDroneId)
 
                         if (!mapGone) {
+                            binding.mosaicMap.defaultZoom = state.defaultZoom
                             state.mosaic?.let { mosaic ->
                                 if (appliedLayerKey != mosaic.layerKey) {
                                     appliedLayerKey = mosaic.layerKey
@@ -149,6 +160,19 @@ class MapSessionActivity : AppCompatActivity() {
                             binding.mosaicMap.setCameraFollow(state.cameraFollow)
                         }
 
+                        binding.btnNavView.isVisible = showMap
+                        binding.btnNavView.isSelected = state.navigationView
+                        binding.btnNavView.imageTintList = ColorStateList.valueOf(
+                            getColor(if (state.navigationView) R.color.md_turquoise else R.color.white),
+                        )
+                        binding.mosaicMap.setNavigationView(state.navigationView)
+
+                        binding.locateThreatContainer.isVisible = showMap
+                        binding.btnLocateThreat.isEnabled = state.threatCount > 0
+                        binding.btnLocateThreat.imageAlpha = if (state.threatCount > 0) 255 else 90
+                        binding.threatCountBadge.isVisible = state.threatCount > 0
+                        binding.threatCountBadge.text = state.threatCount.toString()
+
                         val banner = state.threatBanner
                         binding.threatBanner.isVisible = showMap && banner != null
                         if (banner != null) {
@@ -157,6 +181,19 @@ class MapSessionActivity : AppCompatActivity() {
                                 ordinal(banner.threatCount),
                             )
                         }
+                    }
+                }
+                launch {
+                    // Mithril: incident resolved / false alarm → leave the session; Home shows
+                    // the "Alarm Ended" dialog.
+                    viewModel.incidentEnded.collect { notice ->
+                        sessionEvents.postIncidentEnded(notice)
+                        finish()
+                    }
+                }
+                launch {
+                    viewModel.droneRoster.collect { roster ->
+                        droneAdapter.submitRoster(roster)
                     }
                 }
                 launch {
@@ -241,6 +278,41 @@ class MapSessionActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Mithril locate-threat button: a single threat is focused directly; with several, the
+     * "Select Threat to Locate" list opens (current focus checked; picking it again unfocuses).
+     */
+    private fun onLocateThreatClicked() {
+        val threats = viewModel.threatListItems()
+        when {
+            threats.isEmpty() -> return
+            threats.size == 1 -> viewModel.locateThreat(threats.first().id)
+            else -> showThreatSelectionDialog(threats)
+        }
+    }
+
+    private fun showThreatSelectionDialog(threats: List<ThreatListItem>) {
+        val followedId = viewModel.state.value.followedThreatId
+        val hint = getColor(R.color.md_hint)
+        val labels = threats.map { item ->
+            SpannableStringBuilder(item.name).apply {
+                append('\n')
+                val start = length
+                append(item.location)
+                setSpan(ForegroundColorSpan(hint), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                setSpan(RelativeSizeSpan(0.85f), start, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }.toTypedArray<CharSequence>()
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.select_threat_to_locate)
+            .setSingleChoiceItems(labels, threats.indexOfFirst { it.id == followedId }) { dialog, which ->
+                dialog.dismiss()
+                threats.getOrNull(which)?.let { viewModel.onThreatSelected(it.id) }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
     /** Mithril ThreatBanner ordinal: 1st, 2nd, 3rd, 11th… */
     private fun ordinal(n: Int): String {
         val suffix = when {
@@ -274,6 +346,7 @@ class MapSessionActivity : AppCompatActivity() {
         floorAdapter = null
         if (::binding.isInitialized) {
             binding.mosaicMap.onDroneTapped = null
+            binding.mosaicMap.onThreatTapped = null
             binding.mosaicMap.onUserInteraction = null
         }
         lastListDataKey = null

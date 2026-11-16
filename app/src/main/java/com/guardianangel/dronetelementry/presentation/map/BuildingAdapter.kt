@@ -1,9 +1,16 @@
 package com.guardianangel.dronetelementry.presentation.map
 
+import android.graphics.Color
 import android.view.LayoutInflater
+import androidx.core.view.isVisible
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.guardianangel.dronetelementry.databinding.ItemBuildingBinding
+
+private val THREAT_BG = Color.parseColor("#0FEF4141")
+private val THREAT_STROKE = Color.parseColor("#F42424")
+private val NORMAL_BG = Color.parseColor("#0FFFFFFF")
+private val NORMAL_STROKE = Color.parseColor("#33FFFFFF")
 
 class BuildingAdapter(
     private val onClick: (BuildingListItem) -> Unit,
@@ -44,6 +51,16 @@ class BuildingAdapter(
                     item.floorCount,
                     item.floorCount,
                 )
+            }
+            // Mithril BuildingItem CRITICAL: red tint + border and a "Threat Identified" badge.
+            binding.threatBadge.isVisible = item.hasThreat
+            val card = binding.root
+            if (item.hasThreat) {
+                card.setCardBackgroundColor(THREAT_BG)
+                card.strokeColor = THREAT_STROKE
+            } else {
+                card.setCardBackgroundColor(NORMAL_BG)
+                card.strokeColor = NORMAL_STROKE
             }
             binding.root.setOnClickListener { onClick(item) }
         }

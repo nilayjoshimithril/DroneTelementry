@@ -8,4 +8,5 @@ data class UserCampusDto(
     @SerialName("ID") val id: String = "",
     @SerialName("name") val name: String? = null,
     @SerialName("district_id") val districtId: String? = null,
+    @SerialName("role_name") val roleName: String? = null,
 )

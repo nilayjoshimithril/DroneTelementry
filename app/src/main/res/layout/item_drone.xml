@@ -340,7 +340,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:ellipsize="end"
-            android:maxLines="1"
+            android:maxLines="4"
             android:textColor="@color/md_hint"
             android:textSize="11sp"
             tools:text="127.0.0.1" />

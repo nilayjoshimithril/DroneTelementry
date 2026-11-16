@@ -87,19 +87,12 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:imeOptions="actionDone"
-                        android:inputType="textCapCharacters"
+                        android:inputType="textCapCharacters|textNoSuggestions|textVisiblePassword"
+                        android:maxLength="6"
                         android:maxLines="1"
                         android:textColor="@color/md_primary"
                         android:textColorHint="@color/md_hint" />
                 </com.google.android.material.textfield.TextInputLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_continue"
-                    style="@style/Widget.Drone.Button"
-                    android:layout_width="match_parent"
-                    android:layout_height="56dp"
-                    android:layout_marginTop="16dp"
-                    android:text="@string/continue_label" />
 
                 <LinearLayout
                     android:id="@+id/district_panel"
@@ -133,15 +126,17 @@
                         android:textColor="@color/md_hint"
                         android:textSize="14sp"
                         tools:text="Gurgaon, GA" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_microsoft"
-                        style="@style/Widget.Drone.Button.Orange"
-                        android:layout_width="match_parent"
-                        android:layout_height="56dp"
-                        android:layout_marginTop="18dp"
-                        android:text="@string/sign_in_microsoft" />
                 </LinearLayout>
+
+                <!-- Single action (Mithril LoginScreen): enabled once the 6-char code resolves a district. -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_continue"
+                    style="@style/Widget.Drone.Button.Orange"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:layout_marginTop="20dp"
+                    android:enabled="false"
+                    android:text="@string/continue_label" />
 
                 <ProgressBar
                     android:id="@+id/progress"

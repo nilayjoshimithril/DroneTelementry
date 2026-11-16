@@ -277,6 +277,66 @@
             app:tint="@color/md_hint" />
     </LinearLayout>
 
+    <!-- Mithril locate-threat MapActionIcon: one threat → focus it, several → pick from list. -->
+    <FrameLayout
+        android:id="@+id/locate_threat_container"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:paddingTop="6dp"
+        android:paddingEnd="6dp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="@id/mosaic_map"
+        app:layout_constraintEnd_toEndOf="@id/mosaic_map"
+        tools:visibility="visible">
+
+        <ImageButton
+            android:id="@+id/btn_locate_threat"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/bg_locate_threat"
+            android:contentDescription="@string/locate_threat"
+            android:foreground="?attr/selectableItemBackground"
+            android:padding="12dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_map_locate_threat" />
+
+        <TextView
+            android:id="@+id/threat_count_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="16dp"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="-6dp"
+            android:layout_marginEnd="-6dp"
+            android:background="@drawable/bg_threat_badge"
+            android:gravity="center"
+            android:minWidth="16dp"
+            android:paddingHorizontal="4dp"
+            android:textColor="@color/white"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            tools:text="3" />
+    </FrameLayout>
+
+    <!-- Navigation view toggle: Google-Maps-style 45° tilted, heading-up camera. -->
+    <ImageButton
+        android:id="@+id/btn_nav_view"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_marginEnd="22dp"
+        android:layout_marginBottom="4dp"
+        android:background="@drawable/bg_map_chrome"
+        android:contentDescription="@string/navigation_view"
+        android:padding="12dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_nav_view"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/locate_threat_container"
+        app:layout_constraintEnd_toEndOf="@id/mosaic_map"
+        tools:visibility="visible" />
+
     <ProgressBar
         android:id="@+id/progress"
         android:layout_width="48dp"
