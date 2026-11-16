@@ -16,7 +16,7 @@
 
     <fragment
         android:id="@+id/splashFragment"
-        android:name="com.guardianangel.mithrildefense.presentation.splash.SplashFragment"
+        android:name="com.guardianangel.dronetelementry.presentation.splash.SplashFragment"
         android:label="Splash"
         tools:layout="@layout/fragment_splash">
         <action
@@ -33,7 +33,7 @@
 
     <fragment
         android:id="@+id/loginFragment"
-        android:name="com.guardianangel.mithrildefense.presentation.onboarding.LoginFragment"
+        android:name="com.guardianangel.dronetelementry.presentation.onboarding.LoginFragment"
         android:label="Login"
         tools:layout="@layout/fragment_login">
         <action
@@ -45,7 +45,7 @@
 
     <fragment
         android:id="@+id/homeFragment"
-        android:name="com.guardianangel.mithrildefense.presentation.home.HomeFragment"
+        android:name="com.guardianangel.dronetelementry.presentation.home.HomeFragment"
         android:label="Home"
         tools:layout="@layout/fragment_home">
         <action

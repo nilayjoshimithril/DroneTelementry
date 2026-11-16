@@ -6,7 +6,7 @@
     android:layout_height="match_parent"
     android:background="@color/md_secondary">
 
-    <com.guardianangel.mithrildefense.map.MosaicMapView
+    <com.guardianangel.dronetelementry.map.MosaicMapView
         android:id="@+id/mosaic_map"
         android:layout_width="0dp"
         android:layout_height="0dp"

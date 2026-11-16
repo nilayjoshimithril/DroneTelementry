@@ -5,14 +5,13 @@ plugins {
 }
 
 android {
-    namespace = "com.guardianangel.mithrildefense"
-    compileSdk = 36
+    namespace = "com.guardianangel.dronetelementry"
+    compileSdk = 37
 
     defaultConfig {
-        // POC: same applicationId as Mithril so Microsoft AD / redirect work.
-        applicationId = "com.guardianangel.mithrildefense"
+        applicationId = "com.guardianangel.dronetelementry"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 1
         versionName = "1.0.0-drone-poc"
 
