@@ -24,6 +24,14 @@ class DroneListAdapter(
     private var expandedId: String? = null
     /** Campus roster by display_id (`campuses/drones/`), merged into each live row. */
     private var roster: Map<String, CampusDroneDto> = emptyMap()
+    /** Signed-in user id; rows whose pilot_id matches get the "Mine" badge. */
+    private var currentUserId: String? = null
+
+    fun setCurrentUserId(userId: String?) {
+        if (userId == currentUserId) return
+        currentUserId = userId
+        notifyDataSetChanged()
+    }
 
     fun submitRoster(map: Map<String, CampusDroneDto>) {
         if (map == roster) return
@@ -61,9 +69,13 @@ class DroneListAdapter(
 
     override fun onBindViewHolder(holder: Holder, position: Int) {
         val item = items[position]
+        val rosterDrone = roster[item.droneDisplayId]
+        val userId = currentUserId?.takeIf { it.isNotBlank() }
+        val pilotId = item.pilotId?.takeIf { it.isNotBlank() } ?: rosterDrone?.pilotId
         holder.bind(
             item = item,
-            rosterDrone = roster[item.droneDisplayId],
+            rosterDrone = rosterDrone,
+            isMine = userId != null && pilotId.equals(userId, ignoreCase = true),
             expanded = item.droneDisplayId == expandedId,
             onToggle = onToggle,
         )
@@ -78,10 +90,12 @@ class DroneListAdapter(
         fun bind(
             item: DroneMapPose,
             rosterDrone: CampusDroneDto?,
+            isMine: Boolean,
             expanded: Boolean,
             onToggle: (String) -> Unit,
         ) {
             binding.droneId.text = item.droneDisplayId
+            binding.droneMineBadge.isVisible = isMine
             // Roster type (e.g. "Dazzler") in front of the live state line.
             val type = rosterDrone?.type?.let(::formatEnumLabel)
             binding.droneMeta.text = listOfNotNull(type, item.listMetaLine()).joinToString(" · ")

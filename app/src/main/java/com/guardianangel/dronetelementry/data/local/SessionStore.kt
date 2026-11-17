@@ -21,10 +21,6 @@ class SessionStore(
 ) {
     private object Keys {
         val ACCESS_TOKEN_RESPONSE = stringPreferencesKey("access_token_response")
-        val DISTRICT_ID = stringPreferencesKey("district_id")
-        val CAMPUS_ID = stringPreferencesKey("campus_id")
-        val CAMPUS_NAME = stringPreferencesKey("campus_name")
-        val INVITE_CODE = stringPreferencesKey("invite_code")
         /** Default map zoom (multiple of fit). Lives in this store so logout's clear() drops it. */
         val MAP_ZOOM_LEVEL = floatPreferencesKey("map_zoom_level")
     }
@@ -73,24 +69,6 @@ class SessionStore(
         )
         saveAccessTokenResponse(updated)
     }
-
-    suspend fun saveCampus(districtId: String, campusId: String, campusName: String) {
-        context.dataStore.edit {
-            it[Keys.DISTRICT_ID] = districtId
-            it[Keys.CAMPUS_ID] = campusId
-            it[Keys.CAMPUS_NAME] = campusName
-        }
-    }
-
-    suspend fun getDistrictId(): String? = context.dataStore.data.first()[Keys.DISTRICT_ID]
-    suspend fun getCampusId(): String? = context.dataStore.data.first()[Keys.CAMPUS_ID]
-    suspend fun getCampusName(): String? = context.dataStore.data.first()[Keys.CAMPUS_NAME]
-
-    suspend fun saveInviteCode(code: String) {
-        context.dataStore.edit { it[Keys.INVITE_CODE] = code }
-    }
-
-    suspend fun getInviteCode(): String? = context.dataStore.data.first()[Keys.INVITE_CODE]
 
     suspend fun saveMapZoomLevel(level: Float) {
         context.dataStore.edit { it[Keys.MAP_ZOOM_LEVEL] = level }

@@ -12,6 +12,7 @@ import androidx.navigation.fragment.NavHostFragment
 import com.guardianangel.dronetelementry.data.remote.SessionEvents
 import com.guardianangel.dronetelementry.databinding.ActivityMainBinding
 import com.guardianangel.dronetelementry.utils.AppLog
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 
@@ -33,7 +34,8 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                sessionEvents.unauthorized.collect {
+                sessionEvents.unauthorized.filter { it }.collect {
+                    sessionEvents.consumeUnauthorized()
                     val navController =
                         (supportFragmentManager.findFragmentById(R.id.nav_host) as? NavHostFragment)
                             ?.navController

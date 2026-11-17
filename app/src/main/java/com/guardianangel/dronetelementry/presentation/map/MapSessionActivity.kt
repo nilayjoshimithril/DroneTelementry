@@ -3,13 +3,21 @@ package com.guardianangel.dronetelementry.presentation.map
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.os.Bundle
 import android.text.SpannableStringBuilder
+import android.transition.ChangeBounds
+import android.transition.Slide
+import android.transition.TransitionManager
+import android.transition.TransitionSet
+import android.view.Gravity
+import android.view.animation.PathInterpolator
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
 import android.widget.ArrayAdapter
 import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -25,8 +33,13 @@ import com.guardianangel.dronetelementry.data.remote.SessionEvents
 import com.guardianangel.dronetelementry.databinding.ActivityMapSessionBinding
 import com.guardianangel.dronetelementry.domain.model.DroneMapPose
 import com.guardianangel.dronetelementry.utils.AppLog
+import com.guardianangel.dronetelementry.utils.ServerClock
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import java.util.Locale
+import java.time.Instant
 import okhttp3.OkHttpClient
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
@@ -50,12 +63,17 @@ class MapSessionActivity : AppCompatActivity() {
     private var lastExpandedId: String? = null
     private var latestDrones: Map<String, DroneMapPose> = emptyMap()
     private val droneLayoutManager by lazy { LinearLayoutManager(this) }
+    /** User-collapsed drone list — hides the panel so the map gets the full screen. */
+    private var dronePanelCollapsed = false
+    private var chevronTarget: Float? = null
+    private var leaveDialog: AlertDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, true)
         binding = ActivityMapSessionBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        dronePanelCollapsed = savedInstanceState?.getBoolean(KEY_DRONE_PANEL_COLLAPSED) ?: false
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
@@ -94,9 +112,10 @@ class MapSessionActivity : AppCompatActivity() {
         }
         binding.threatBannerDismiss.setOnClickListener { viewModel.dismissThreatBanner() }
 
-        binding.btnLeave.setOnClickListener { leaveToHome() }
-        binding.btnBack.setOnClickListener { leaveToHome() }
-        binding.btnPickerBack?.setOnClickListener { leaveToHome() }
+        binding.btnLeave.setOnClickListener { confirmLeave() }
+        binding.btnToggleDrones.setOnClickListener { setDronePanelCollapsed(!dronePanelCollapsed) }
+        binding.btnBack.setOnClickListener { confirmLeave() }
+        binding.btnPickerBack?.setOnClickListener { handleBack() }
         binding.buildingHeader.setOnClickListener { viewModel.openBuildingPicker() }
 
         val unavailable = binding.mapUnavailablePanel
@@ -106,12 +125,13 @@ class MapSessionActivity : AppCompatActivity() {
         onBackPressedDispatcher.addCallback(
             this,
             object : OnBackPressedCallback(true) {
-                override fun handleOnBackPressed() = leaveToHome()
+                override fun handleOnBackPressed() = handleBack()
             },
         )
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch { runIncidentTimer() }
                 launch {
                     viewModel.state.collect { state ->
                         val mapGone = state.mapUnavailable
@@ -128,10 +148,10 @@ class MapSessionActivity : AppCompatActivity() {
                         binding.buildingPicker.isVisible = showPicker
                         binding.mapChrome.isVisible = showMap
                         binding.mosaicMap.isVisible = showMap
-                        binding.sidePanel.isVisible = !mapGone
+                        applyDronePanel(mapGone = mapGone, showMap = showMap)
 
                         binding.pickerCampusName.text = state.campusName
-                        binding.campusLabel.text = state.campusName
+                        binding.incidentCampusName.text = state.campusName
                         binding.buildingLabel.text = state.selectedBuildingName
                         buildingAdapter.submit(state.buildings)
 
@@ -197,6 +217,9 @@ class MapSessionActivity : AppCompatActivity() {
                     }
                 }
                 launch {
+                    viewModel.currentUserIdFlow.collect { droneAdapter.setCurrentUserId(it) }
+                }
+                launch {
                     viewModel.overlays.collect { overlays ->
                         binding.mosaicMap.updateOverlays(overlays.pathways, overlays.threats)
                     }
@@ -213,8 +236,9 @@ class MapSessionActivity : AppCompatActivity() {
                     }
                 }
                 launch {
-                    sessionEvents.unauthorized.collect {
-                        AppLog.w(TAG, "401 received — closing map session")
+                    // Not consumed here: MainActivity consumes it and opens login after we finish.
+                    sessionEvents.unauthorized.filter { it }.collect {
+                        AppLog.w(TAG, "Session ended — closing map session")
                         finish()
                     }
                 }
@@ -325,6 +349,127 @@ class MapSessionActivity : AppCompatActivity() {
         return "$n$suffix"
     }
 
+    private fun setDronePanelCollapsed(collapsed: Boolean) {
+        if (dronePanelCollapsed == collapsed) return
+        dronePanelCollapsed = collapsed
+        val state = viewModel.state.value
+        val mapGone = state.mapUnavailable
+        val showMap = !mapGone && !state.showBuildingPicker && state.error.isNullOrBlank()
+        applyDronePanel(mapGone = mapGone, showMap = showMap, animate = true)
+    }
+
+    private fun applyDronePanel(mapGone: Boolean, showMap: Boolean, animate: Boolean = false) {
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val panelVisible = !mapGone && !dronePanelCollapsed
+        if (animate && binding.sidePanel.isVisible != panelVisible) {
+            // Panel slides over the (fixed, full-screen) map; chrome and map buttons glide to
+            // their new positions instead of jumping.
+            val duration = 280L
+            val easing = PathInterpolator(0.4f, 0f, 0.2f, 1f)
+            val transition = TransitionSet()
+                .setOrdering(TransitionSet.ORDERING_TOGETHER)
+                .addTransition(Slide(if (landscape) Gravity.END else Gravity.BOTTOM).addTarget(binding.sidePanel))
+                .addTransition(
+                    ChangeBounds()
+                        .excludeTarget(binding.mosaicMap, true)
+                        .excludeTarget(binding.sidePanel, true)
+                        .excludeChildren(binding.sidePanel, true),
+                )
+                .setDuration(duration)
+                .setInterpolator(easing)
+            TransitionManager.beginDelayedTransition(binding.root, transition)
+        }
+        binding.sidePanel.isVisible = panelVisible
+        binding.btnToggleDrones.isVisible = showMap
+        // Arrow points where the panel goes: landscape panel is on the right, portrait at the bottom.
+        val chevron = when {
+            landscape && dronePanelCollapsed -> 90f   // ← bring it back in from the right
+            landscape -> -90f                         // → push it out to the right
+            dronePanelCollapsed -> 180f               // ↑ bring it back up
+            else -> 0f                                // ↓ push it down
+        }
+        // Only touch the arrow when its target changes, so frequent state updates don't cut the
+        // rotation animation short.
+        if (chevron != chevronTarget) {
+            chevronTarget = chevron
+            binding.toggleDronesChevron.animate().cancel()
+            if (animate) {
+                binding.toggleDronesChevron.animate().rotation(chevron).setDuration(280L).start()
+            } else {
+                binding.toggleDronesChevron.rotation = chevron
+            }
+        }
+        binding.btnToggleDrones.contentDescription = getString(
+            if (dronePanelCollapsed) R.string.expand_drones else R.string.collapse_drones,
+        )
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(KEY_DRONE_PANEL_COLLAPSED, dronePanelCollapsed)
+    }
+
+    /**
+     * System back / picker back: close the building picker and return to the map first;
+     * otherwise ask before leaving the incident map.
+     */
+    private fun handleBack() {
+        if (viewModel.state.value.mapUnavailable) {
+            leaveToHome()
+            return
+        }
+        if (viewModel.state.value.showBuildingPicker && viewModel.closeBuildingPicker()) return
+        confirmLeave()
+    }
+
+    /** Back / Leave on the map: confirm before dropping out of the live incident view. */
+    private fun confirmLeave() {
+        if (leaveDialog?.isShowing == true) return
+        leaveDialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.leave_map_title)
+            .setMessage(R.string.leave_map_message)
+            .setNegativeButton(R.string.cancel) { dialog, _ -> dialog.dismiss() }
+            .setPositiveButton(R.string.leave_session) { _, _ -> leaveToHome() }
+            .create()
+            .also { dialog ->
+                dialog.setOnShowListener {
+                    // Leave in the app's orange accent; Cancel stays neutral.
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(getColor(R.color.md_orange))
+                    dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(getColor(R.color.md_hint))
+                }
+                dialog.setOnDismissListener { leaveDialog = null }
+                dialog.show()
+            }
+    }
+
+    /** Header "Running HH:MM:SS" since the incident's CreatedAt; hidden when it's unknown. */
+    private suspend fun runIncidentTimer() {
+        val raw = intent.getStringExtra(EXTRA_STARTED_AT)?.trim().orEmpty()
+        val startMs = runCatching { Instant.parse(raw).toEpochMilli() }.getOrNull()
+        if (startMs == null) {
+            if (raw.isNotEmpty()) AppLog.w(TAG, "Unparseable incident CreatedAt=$raw")
+            binding.incidentRunningRow.isVisible = false
+            return
+        }
+        binding.incidentRunningRow.isVisible = true
+        while (true) {
+            // Server clock, not the device clock: a phone set to the wrong date would
+            // otherwise put the start in the future and freeze the timer at 00:00:00.
+            val elapsedMs = (ServerClock.nowMs() - startMs).coerceAtLeast(0L)
+            binding.incidentRunningTime.text =
+                getString(R.string.incident_running, formatElapsed(elapsedMs / 1000))
+            // Tick on the second boundary so the clock never skips or stutters.
+            delay(1000L - elapsedMs % 1000L)
+        }
+    }
+
+    private fun formatElapsed(totalSec: Long): String {
+        val h = totalSec / 3600
+        val m = (totalSec % 3600) / 60
+        val sec = totalSec % 60
+        return String.format(Locale.US, "%02d:%02d:%02d", h, m, sec)
+    }
+
     private fun leaveToHome() {
         finish()
     }
@@ -342,6 +487,8 @@ class MapSessionActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        leaveDialog?.dismiss()
+        leaveDialog = null
         appliedLayerKey = null
         floorAdapter = null
         if (::binding.isInitialized) {
@@ -357,22 +504,26 @@ class MapSessionActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MapSessionActivity"
+        private const val KEY_DRONE_PANEL_COLLAPSED = "drone_panel_collapsed"
 
         const val EXTRA_INCIDENT_ID = "incidentId"
         const val EXTRA_CAMPUS_ID = "campusId"
         const val EXTRA_WS_TICKET = "wsTicket"
+        const val EXTRA_STARTED_AT = "startedAt"
 
         fun start(
             context: Context,
             incidentId: String,
             campusId: String,
             wsTicket: String,
+            startedAt: String?,
         ) {
             context.startActivity(
                 Intent(context, MapSessionActivity::class.java).apply {
                     putExtra(EXTRA_INCIDENT_ID, incidentId)
                     putExtra(EXTRA_CAMPUS_ID, campusId)
                     putExtra(EXTRA_WS_TICKET, wsTicket)
+                    putExtra(EXTRA_STARTED_AT, startedAt)
                 },
             )
         }

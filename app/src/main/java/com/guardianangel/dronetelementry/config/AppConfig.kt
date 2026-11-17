@@ -16,7 +16,7 @@ object AppConfig {
     /**
      * Hardcoded Microsoft AD / Cognito authorize URL (NOT taken from district invite API).
      * Shape: `.../oauth2/authorize?client_id=...&response_type=code&scope=openid+email+profile`
-     * Invite code is appended as `identity_provider` at authorize time.
+     * Opened directly at login (no invite code / `identity_provider`).
      */
     val microsoftAdAuthorizeUrl: String
         get() = BuildConfig.MICROSOFT_AD_AUTHORIZE_URL

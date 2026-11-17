@@ -29,8 +29,7 @@ class SplashViewModel(
             val dest = if (session != null) SplashNav.Home else SplashNav.Login
             AppLog.i(
                 TAG,
-                "Session restore → $dest user=${session?.userDetail?.email} " +
-                    "districtOk=${authInteract.hasValidSession()}",
+                "Session restore → $dest user=${session?.userDetail?.email}",
             )
             _nav.emit(dest)
         }

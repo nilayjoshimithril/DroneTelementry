@@ -16,18 +16,16 @@ import net.openid.appauth.ResponseTypeValues
 
 class OAuthHelper {
 
-    suspend fun authorize(activity: Activity, inviteCode: String): String {
+    suspend fun authorize(activity: Activity): String {
         val authUrl = AppConfig.microsoftAdAuthorizeUrl
-        AppLog.i(TAG, "authorize start inviteCode=$inviteCode baseUrl=$authUrl")
+        AppLog.i(TAG, "authorize start baseUrl=$authUrl")
         val uri = authUrl.toUri()
         val clientId = uri.getQueryParameter("client_id").orEmpty()
         val scope = uri.getQueryParameter("scope").orEmpty()
         val responseType = uri.getQueryParameter("response_type") ?: ResponseTypeValues.CODE
 
         val baseWithoutQuery = authUrl.substringBefore("?")
-        val authorizeEndpoint = Uri.parse(baseWithoutQuery).buildUpon()
-            .appendQueryParameter("identity_provider", inviteCode)
-            .build()
+        val authorizeEndpoint = Uri.parse(baseWithoutQuery)
         val origin = "${uri.scheme}://${uri.host}"
         val tokenEndpoint = "$origin/oauth2/token".toUri()
         AppLog.d(TAG, "authorizeEndpoint=$authorizeEndpoint")

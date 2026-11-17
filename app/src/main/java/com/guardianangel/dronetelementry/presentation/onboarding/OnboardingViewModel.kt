@@ -3,126 +3,75 @@ package com.guardianangel.dronetelementry.presentation.onboarding
 import android.app.Activity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.guardianangel.dronetelementry.data.model.CampusDto
-import com.guardianangel.dronetelementry.data.model.DistrictResponseDto
 import com.guardianangel.dronetelementry.data.remote.OAuthHelper
+import com.guardianangel.dronetelementry.data.remote.SessionEvents
 import com.guardianangel.dronetelementry.domain.interact.AuthInteract
 import com.guardianangel.dronetelementry.utils.AppLog
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
-
-data class OnboardingUiState(
-    val inviteCode: String = "",
-    val district: DistrictResponseDto? = null,
-    val campuses: List<CampusDto> = emptyList(),
-    val loading: Boolean = false,
-    val error: String? = null,
-)
 
 sealed interface OnboardingNav {
     data object Home : OnboardingNav
+    /** User backed out of the Microsoft page — close the app. */
+    data object Exit : OnboardingNav
+    data class Failed(val message: String) : OnboardingNav
 }
 
+/**
+ * Login is only the Microsoft AD page: no invite code, no district / campus selection
+ * (internal users can open every campus in every district).
+ */
 class OnboardingViewModel(
     private val authInteract: AuthInteract,
     private val oauthHelper: OAuthHelper,
+    private val sessionEvents: SessionEvents,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(OnboardingUiState())
-    val state: StateFlow<OnboardingUiState> = _state.asStateFlow()
+    // Buffered: results arrive while the Microsoft page still covers this screen (STOPPED),
+    // so events must wait for the collector instead of being dropped.
+    private val _nav = Channel<OnboardingNav>(Channel.BUFFERED)
+    val nav: Flow<OnboardingNav> = _nav.receiveAsFlow()
 
-    private val _nav = MutableSharedFlow<OnboardingNav>()
-    val nav: SharedFlow<OnboardingNav> = _nav.asSharedFlow()
+    private var started = false
+    private var loginJob: Job? = null
 
-    private var inviteJob: Job? = null
-
-    /**
-     * Mithril onUpdateInviteCode: code is upper-cased alphanumerics, max [INVITE_CODE_LENGTH];
-     * a full-length code triggers the district lookup automatically. Any edit drops the
-     * previously resolved district so Continue can't sign in against a stale code.
-     */
-    fun onInviteCodeChanged(raw: String) {
-        val code = raw.filter(Char::isLetterOrDigit).uppercase().take(INVITE_CODE_LENGTH)
-        if (code == _state.value.inviteCode) return
-        inviteJob?.cancel()
-        _state.update { it.copy(inviteCode = code, district = null, loading = false, error = null) }
-        if (code.length == INVITE_CODE_LENGTH) submitInviteCode()
+    /** Opens the Microsoft page once per screen (survives rotation). */
+    fun startLoginIfNeeded(activity: Activity) {
+        if (started) return
+        started = true
+        signIn(activity)
     }
 
-    private fun submitInviteCode() {
-        val code = _state.value.inviteCode
-        inviteJob = viewModelScope.launch {
-            AppLog.i(TAG, "submitInviteCode code=$code")
-            _state.update { it.copy(loading = true, error = null) }
-            runCatching { authInteract.getDistrict(code) }
-                .onSuccess { district ->
-                    AppLog.i(TAG, "Invite OK district=${district.name}")
-                    _state.update { it.copy(loading = false, district = district) }
-                }
-                .onFailure { e ->
-                    AppLog.e(TAG, "Invite failed", e)
-                    _state.update {
-                        it.copy(loading = false, error = e.message ?: "Invite lookup failed")
-                    }
-                }
-        }
-    }
-
-    fun continueLogin(activity: Activity) {
-        val invite = _state.value.inviteCode
-        val district = _state.value.district ?: return
-        viewModelScope.launch {
-            AppLog.i(TAG, "continueLogin district=${district.name}")
-            _state.update { it.copy(loading = true, error = null) }
+    fun signIn(activity: Activity) {
+        if (loginJob?.isActive == true) return
+        loginJob = viewModelScope.launch {
+            AppLog.i(TAG, "signIn → Microsoft AD")
             runCatching {
-                val code = oauthHelper.authorize(activity, invite)
+                val code = oauthHelper.authorize(activity)
                 AppLog.i(TAG, "OAuth code received — exchanging token")
-                val token = authInteract.exchangeCode(code)
-                val districtId = district.id.ifBlank {
-                    token.userDetail.districts?.firstOrNull()?.id.orEmpty()
-                }
-                val campuses = if (districtId.isNotBlank()) {
-                    authInteract.loadCampuses(districtId)
-                } else {
-                    token.userDetail.campuses?.map {
-                        CampusDto(id = it.id, name = it.name.orEmpty(), districtId = it.districtId.orEmpty())
-                    }.orEmpty()
-                }
-                if (campuses.isEmpty()) {
-                    throw IllegalStateException("No campuses available for this account")
-                }
-                val campus = campuses.first()
-                authInteract.selectCampus(
-                    districtId = campus.districtId.ifBlank { districtId },
-                    campus = campus,
-                )
-                campuses
-            }.onSuccess { campuses ->
-                AppLog.i(TAG, "Login success campuses=${campuses.size} → Home")
-                _state.update { it.copy(loading = false, campuses = campuses) }
-                _nav.emit(OnboardingNav.Home)
+                authInteract.exchangeCode(code)
+            }.onSuccess {
+                AppLog.i(TAG, "Login success → Home")
+                sessionEvents.armAutoJoin()
+                _nav.send(OnboardingNav.Home)
             }.onFailure { e ->
-                AppLog.e(TAG, "Login failed", e)
-                _state.update {
-                    it.copy(loading = false, error = e.message ?: "Login failed")
+                if (e.message == USER_CANCELLED) {
+                    AppLog.w(TAG, "User closed the Microsoft page — exiting")
+                    _nav.send(OnboardingNav.Exit)
+                } else {
+                    AppLog.e(TAG, "Login failed", e)
+                    _nav.send(OnboardingNav.Failed(e.message ?: "Login failed"))
                 }
             }
         }
     }
 
-    fun clearError() {
-        _state.update { it.copy(error = null) }
-    }
-
     companion object {
         private const val TAG = "OnboardingVM"
-        const val INVITE_CODE_LENGTH = 6
+        /** Error OAuthWebViewActivity reports when the user presses back. */
+        private const val USER_CANCELLED = "user_cancelled"
     }
 }

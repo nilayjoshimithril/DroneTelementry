@@ -4,7 +4,6 @@ import com.guardianangel.dronetelementry.data.model.AccessTokenResponseDto
 import com.guardianangel.dronetelementry.data.model.AnnotationDataDto
 import com.guardianangel.dronetelementry.data.model.CampusDronePageDto
 import com.guardianangel.dronetelementry.data.model.CampusesResponseDto
-import com.guardianangel.dronetelementry.data.model.DistrictResponseDto
 import com.guardianangel.dronetelementry.data.model.IncidentRequestDto
 import com.guardianangel.dronetelementry.data.model.JoinIncidentResponseDto
 import com.guardianangel.dronetelementry.data.model.MainGenericResponse
@@ -23,11 +22,6 @@ import retrofit2.http.Query
 
 interface ApiService {
 
-    @GET("districts/invite-code/{inviteCode}")
-    suspend fun getDistrictFromInviteCode(
-        @Path("inviteCode") inviteCode: String,
-    ): MainGenericResponse<DistrictResponseDto>
-
     @POST("auth/token")
     suspend fun exchangeToken(
         @Body body: RequestAccessTokenDto,
@@ -41,18 +35,16 @@ interface ApiService {
     @GET("auth/access-token-login")
     suspend fun accessTokenLogin(): MainGenericResponse<AccessTokenResponseDto>
 
+    /** Internal users: every campus across all districts (no `district_id` filter). */
     @GET("campuses")
     suspend fun getCampuses(
-        @Query("district_id") districtId: String,
         @Query("page") page: Int = 1,
         @Query("limit") limit: Int = 50,
     ): MainGenericResponse<CampusesResponseDto>
 
-    /** Home list: district-scoped only (no campus_id), same intent as Mithril home fetch. */
+    /** Home list for internal users: ongoing incidents across every district and campus. */
     @GET("incidents/ongoing")
-    suspend fun getOngoingIncidents(
-        @Query("district_id") districtId: String,
-    ): MainGenericResponse<List<OngoingIncidentDto>>
+    suspend fun getOngoingIncidents(): MainGenericResponse<List<OngoingIncidentDto>>
 
     @POST("incidents/join")
     suspend fun joinIncident(

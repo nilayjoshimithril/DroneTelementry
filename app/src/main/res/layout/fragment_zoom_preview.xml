@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/md_secondary">
+
+    <!-- Live preview of the campus outdoor map at the chosen zoom. -->
+    <com.guardianangel.dronetelementry.map.MosaicMapView
+        android:id="@+id/mosaic_map"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <LinearLayout
+        android:id="@+id/header"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <ImageButton
+            android:id="@+id/btn_back"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_map_chrome"
+            android:contentDescription="@string/back"
+            android:padding="10dp"
+            android:src="@drawable/ic_map_back" />
+
+        <TextView
+            android:id="@+id/campus_name"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_map_chrome"
+            android:ellipsize="end"
+            android:fontFamily="@font/titilliumweb_bold"
+            android:gravity="center_vertical"
+            android:maxLines="1"
+            android:paddingHorizontal="14dp"
+            android:textColor="@color/md_primary"
+            android:textSize="15sp"
+            tools:text="India Team Campus" />
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/progress"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:indeterminateTint="@color/md_orange"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="@id/mosaic_map"
+        app:layout_constraintEnd_toEndOf="@id/mosaic_map"
+        app:layout_constraintStart_toStartOf="@id/mosaic_map"
+        app:layout_constraintTop_toTopOf="@id/mosaic_map" />
+
+    <!-- Map missing / load error. -->
+    <LinearLayout
+        android:id="@+id/message_panel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="24dp"
+        android:background="@drawable/bg_frosted_card"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintWidth_max="480dp"
+        tools:visibility="visible">
+
+        <TextView
+            android:id="@+id/message_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/titilliumweb_bold"
+            android:textColor="@color/md_primary"
+            android:textSize="20sp"
+            tools:text="@string/map_not_available" />
+
+        <TextView
+            android:id="@+id/message_body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center"
+            android:textColor="@color/md_hint"
+            android:textSize="14sp"
+            tools:text="@string/map_not_available_zoom" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_message_action"
+            style="@style/Widget.Drone.Button.Orange"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="18dp"
+            tools:text="@string/choose_another_campus" />
+    </LinearLayout>
+
+    <!-- Floating, centered control card (max 560dp) over the full-screen map preview. -->
+    <LinearLayout
+        android:id="@+id/controls"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginBottom="24dp"
+        android:background="@drawable/bg_zoom_controls"
+        android:orientation="vertical"
+        android:paddingHorizontal="20dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="20dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintWidth_max="560dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:fontFamily="@font/titilliumweb_bold"
+                android:text="@string/map_zoom_level"
+                android:textColor="@color/md_primary"
+                android:textSize="18sp" />
+
+            <TextView
+                android:id="@+id/zoom_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/md_orange"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                tools:text="1.00× (Default)" />
+        </LinearLayout>
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/zoom_slider"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:contentDescription="@string/map_zoom_level"
+            android:stepSize="0.25"
+            android:valueFrom="1"
+            android:valueTo="6"
+            app:labelBehavior="gone"
+            app:thumbColor="@color/md_orange"
+            app:trackColorActive="@color/md_orange"
+            app:trackColorInactive="#33FFFFFF" />
+
+        <TextView
+            android:id="@+id/zoom_hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/md_hint"
+            android:textSize="13sp"
+            tools:text="Default 1.00× fits the whole campus. Applies to every campus." />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_reset"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:fontFamily="@font/titillium_web"
+                android:text="@string/reset_to_default"
+                android:textAllCaps="false"
+                android:textColor="@color/md_primary"
+                app:cornerRadius="12dp"
+                app:strokeColor="#66FFFFFF" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_save"
+                style="@style/Widget.Drone.Button.Orange"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:text="@string/save" />
+        </LinearLayout>
+    </LinearLayout>
+</androidx.constraintlayout.widget.ConstraintLayout>

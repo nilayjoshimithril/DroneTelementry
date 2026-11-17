@@ -13,17 +13,14 @@ class MapInteract(
     private val sessionStore: SessionStore,
 ) {
     /**
-     * Mithril `session-detail` publish payload: logged-in user id + the role on the active
-     * campus's district (falls back to the user-level role).
+     * Mithril `session-detail` publish payload: logged-in user id + the role on [campusId]
+     * (the incident's campus), falling back to the user-level role.
      */
-    suspend fun sessionIdentity(): Pair<String?, String?> {
+    suspend fun sessionIdentity(campusId: String): Pair<String?, String?> {
         val user = sessionStore.getAccessTokenResponse()?.userDetail ?: return null to null
-        val districtId = sessionStore.getDistrictId()
-        val campusId = sessionStore.getCampusId()
-        val role = user.campuses.orEmpty().let { campuses ->
-            campuses.find { it.id == campusId }?.roleName
-                ?: campuses.find { it.districtId == districtId }?.roleName
-        } ?: user.role
+        val role = user.campuses.orEmpty()
+            .find { it.id.equals(campusId, ignoreCase = true) }?.roleName
+            ?: user.role
         return user.id.takeIf { it.isNotBlank() } to role
     }
 
@@ -111,6 +108,13 @@ class MapInteract(
 
     /** Saved default map zoom (multiple of "fit campus"), or [DEFAULT_MAP_ZOOM]. */
     suspend fun mapZoomLevel(): Float = sessionStore.getMapZoomLevel() ?: DEFAULT_MAP_ZOOM
+
+    /** Persist the default map zoom (clamped to [MIN_MAP_ZOOM]..[MAX_MAP_ZOOM]) for every campus. */
+    suspend fun saveMapZoomLevel(level: Float) {
+        val clamped = level.coerceIn(MIN_MAP_ZOOM, MAX_MAP_ZOOM)
+        AppLog.i(TAG, "Save map zoom level=$clamped")
+        sessionStore.saveMapZoomLevel(clamped)
+    }
 
     suspend fun refreshWsTicket(incidentId: String): String {
         AppLog.i(TAG, "API POST incidents/ws-ticket incident_id=$incidentId")

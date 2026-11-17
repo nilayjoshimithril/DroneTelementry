@@ -94,6 +94,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                                             incidentId = dest.incidentId,
                                             campusId = dest.campusId,
                                             wsTicket = dest.wsTicket,
+                                            startedAt = dest.startedAt,
                                         )
                                     }
                                 }

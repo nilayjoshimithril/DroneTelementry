@@ -36,16 +36,39 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/drone_id"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:fontFamily="@font/titilliumweb_semibold"
-                android:maxLines="1"
-                android:textColor="@color/md_primary"
-                android:textSize="14sp"
-                tools:text="118.001" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/drone_id"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:fontFamily="@font/titilliumweb_semibold"
+                    android:maxLines="1"
+                    android:textColor="@color/md_primary"
+                    android:textSize="14sp"
+                    tools:text="118.001" />
+
+                <!-- Drone whose pilot_id is the signed-in user. -->
+                <TextView
+                    android:id="@+id/drone_mine_badge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_mine_badge"
+                    android:fontFamily="@font/titilliumweb_bold"
+                    android:paddingHorizontal="7dp"
+                    android:paddingVertical="1dp"
+                    android:text="@string/mine_drone"
+                    android:textColor="@color/md_orange"
+                    android:textSize="10sp"
+                    android:visibility="gone"
+                    tools:visibility="visible" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/drone_meta"

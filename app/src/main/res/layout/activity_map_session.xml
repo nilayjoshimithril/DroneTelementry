@@ -6,12 +6,13 @@
     android:layout_height="match_parent"
     android:background="@color/md_secondary">
 
+    <!-- Map always fills the screen; the drone panel slides over it as an overlay. -->
     <com.guardianangel.dronetelementry.map.MosaicMapView
         android:id="@+id/mosaic_map"
         android:layout_width="0dp"
         android:layout_height="0dp"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toStartOf="@id/side_panel"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
@@ -40,76 +41,171 @@
                 android:contentDescription="@string/back"
                 android:padding="10dp"
                 android:src="@drawable/ic_map_back" />
-        </LinearLayout>
 
-        <LinearLayout
-            android:id="@+id/building_header"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/bg_map_chrome"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingHorizontal="14dp">
-
-            <LinearLayout
+            <!-- Incident header: campus name + live running time. -->
+            <FrameLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
+                android:layout_marginHorizontal="8dp"
+                android:layout_weight="1">
 
-                <TextView
-                    android:id="@+id/campus_label"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:textColor="@color/md_hint"
-                    android:textSize="11sp"
-                    tools:text="India Team Campus" />
+                <LinearLayout
+                    android:id="@+id/incident_header"
+                    android:layout_width="wrap_content"
+                    android:layout_height="44dp"
+                    android:layout_gravity="start|center_vertical"
+                    android:background="@drawable/bg_map_chrome"
+                    android:gravity="center_vertical"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="14dp">
 
-                <TextView
-                    android:id="@+id/building_label"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:textColor="@color/md_primary"
-                    android:textSize="15sp"
-                    android:textStyle="bold"
-                    tools:text="Outdoor Map" />
-            </LinearLayout>
+                    <TextView
+                        android:id="@+id/incident_campus_name"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:fontFamily="@font/titilliumweb_bold"
+                        android:includeFontPadding="false"
+                        android:maxLines="1"
+                        android:textColor="@color/md_primary"
+                        android:textSize="15sp"
+                        tools:text="India Team Campus" />
 
-            <TextView
+                    <LinearLayout
+                        android:id="@+id/incident_running_row"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:visibility="gone"
+                        tools:visibility="visible">
+
+                        <View
+                            android:layout_width="7dp"
+                            android:layout_height="7dp"
+                            android:background="@drawable/bg_running_dot" />
+
+                        <TextView
+                            android:id="@+id/incident_running_time"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="6dp"
+                            android:fontFeatureSettings="tnum"
+                            android:includeFontPadding="false"
+                            android:maxLines="1"
+                            android:textColor="@color/md_hint"
+                            android:textSize="12sp"
+                            tools:text="Running 00:12:34" />
+                    </LinearLayout>
+                </LinearLayout>
+            </FrameLayout>
+
+            <!-- Hides / shows the drone list panel. Arrow points where the panel goes. -->
+            <LinearLayout
+                android:id="@+id/btn_toggle_drones"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/buildings"
-                android:textColor="@color/md_orange"
-                android:textSize="13sp"
-                android:textStyle="bold" />
+                android:layout_height="44dp"
+                android:background="@drawable/bg_map_chrome"
+                android:clickable="true"
+                android:contentDescription="@string/collapse_drones"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="14dp"
+                android:paddingEnd="10dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="@font/titilliumweb_bold"
+                    android:text="@string/drones"
+                    android:textColor="@color/md_primary"
+                    android:textSize="15sp" />
+
+                <ImageView
+                    android:id="@+id/toggle_drones_chevron"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_marginStart="6dp"
+                    android:contentDescription="@null"
+                    android:rotation="-90"
+                    android:scaleType="center"
+                    android:src="@drawable/ic_expand_chevron"
+                    app:tint="@color/md_primary" />
+            </LinearLayout>
         </LinearLayout>
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/floor_dropdown_layout"
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
-            android:layout_width="220dp"
+        <!-- Building selector with the floor selector beside it. -->
+        <LinearLayout
+            android:id="@+id/building_floor_row"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:hint="@string/floor"
-            app:boxBackgroundColor="#CC0E0F13"
-            app:boxStrokeColor="@color/md_hint"
-            app:hintTextColor="@color/md_hint">
+            android:layout_marginTop="8dp"
+            android:baselineAligned="false"
+            android:gravity="bottom"
+            android:orientation="horizontal">
 
-            <AutoCompleteTextView
-                android:id="@+id/floor_dropdown"
-                android:layout_width="match_parent"
+            <LinearLayout
+                android:id="@+id/building_header"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_map_chrome"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="14dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/building_label"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textColor="@color/md_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        tools:text="Outdoor Map" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/buildings"
+                    android:textColor="@color/md_orange"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/floor_dropdown_layout"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                android:layout_width="170dp"
                 android:layout_height="wrap_content"
-                android:inputType="none"
-                android:textColor="@color/md_primary"
-                tools:text="Outdoor" />
-        </com.google.android.material.textfield.TextInputLayout>
+                android:layout_marginStart="8dp"
+                android:hint="@string/floor"
+                app:boxBackgroundColor="#CC0E0F13"
+                app:boxStrokeColor="@color/md_hint"
+                app:hintTextColor="@color/md_hint">
+
+                <AutoCompleteTextView
+                    android:id="@+id/floor_dropdown"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="none"
+                    android:textColor="@color/md_primary"
+                    tools:text="Outdoor" />
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Full-screen building picker (Mithril MapBuildingPicker) -->
@@ -182,13 +278,21 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent">
 
-        <TextView
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:fontFamily="@font/titilliumweb_bold"
-            android:text="@string/drones"
-            android:textColor="@color/md_primary"
-            android:textSize="20sp" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:fontFamily="@font/titilliumweb_bold"
+                android:text="@string/drones"
+                android:textColor="@color/md_primary"
+                android:textSize="20sp" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/socket_status"
@@ -226,6 +330,7 @@
             android:layout_height="52dp"
             android:text="@string/leave_session" />
     </LinearLayout>
+
 
     <!-- Mithril MapThreatOverlay: "Nth Threat Identified" — tap to locate, X to hide. -->
     <LinearLayout
@@ -296,7 +401,7 @@
         android:paddingEnd="6dp"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="@id/mosaic_map"
-        app:layout_constraintEnd_toEndOf="@id/mosaic_map"
+        app:layout_constraintEnd_toStartOf="@id/side_panel"
         tools:visibility="visible">
 
         <ImageButton
@@ -341,7 +446,7 @@
         android:src="@drawable/ic_nav_view"
         android:visibility="gone"
         app:layout_constraintBottom_toTopOf="@id/locate_threat_container"
-        app:layout_constraintEnd_toEndOf="@id/mosaic_map"
+        app:layout_constraintEnd_toStartOf="@id/side_panel"
         tools:visibility="visible" />
 
     <ProgressBar

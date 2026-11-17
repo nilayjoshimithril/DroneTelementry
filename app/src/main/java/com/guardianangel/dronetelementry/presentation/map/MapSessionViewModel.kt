@@ -227,6 +227,13 @@ class MapSessionViewModel(
     private var followNonce = 0L
     /** Logged-in user id — matched against drone `pilot_id` for the default focus. */
     private var currentUserId: String? = null
+        set(value) {
+            field = value
+            _currentUserIdFlow.value = value
+        }
+    private val _currentUserIdFlow = MutableStateFlow<String?>(null)
+    /** Logged-in user id — the drone list marks drones whose `pilot_id` matches as "Mine". */
+    val currentUserIdFlow: StateFlow<String?> = _currentUserIdFlow.asStateFlow()
     /** The pilot's own drone is auto-focused once per session; afterwards the user is in control. */
     private var pilotAutoFocusDone = false
 
@@ -334,7 +341,7 @@ class MapSessionViewModel(
             // Saved zoom must be in state before the first layer is configured.
             val zoom = runCatching { mapInteract.mapZoomLevel() }.getOrDefault(MapInteract.DEFAULT_MAP_ZOOM)
             _state.update { it.copy(defaultZoom = zoom) }
-            currentUserId = runCatching { mapInteract.sessionIdentity().first }.getOrNull()
+            currentUserId = runCatching { mapInteract.sessionIdentity(campusId).first }.getOrNull()
             viewModelScope.launch { loadDroneRoster() }
 
             val annotations = runCatching {
@@ -459,15 +466,29 @@ class MapSessionViewModel(
                 ?: OUTDOOR_FLOOR_ID
         }
         AppLog.i(TAG, "selectBuilding id=$bid → floor=$floorId")
-        clearCameraFollow(CameraFollow.Kind.THREAT)
+        releaseFocusForManualLayerChange()
         switchMapState(bid, floorId)
     }
 
     fun selectFloor(floorId: String) {
         val bid = _state.value.selectedBuildingId ?: return
         AppLog.i(TAG, "selectFloor building=$bid floor=$floorId")
-        clearCameraFollow(CameraFollow.Kind.THREAT)
+        releaseFocusForManualLayerChange()
         switchMapState(bid, floorId)
+    }
+
+    /**
+     * User picked a building / floor themselves: drop any threat or drone focus, otherwise the
+     * follow logic would immediately switch the map back to where the focused item is.
+     * Also stops the one-time pilot-drone auto-focus from taking over later.
+     */
+    private fun releaseFocusForManualLayerChange() {
+        val droneId = _state.value.selectedDroneId
+        if (droneId != null) AppLog.i(TAG, "Manual layer change — releasing focus on drone $droneId")
+        pilotAutoFocusDone = true
+        lastFollowedPlacementKey = null
+        _state.update { it.copy(selectedDroneId = null) }
+        clearCameraFollow()
     }
 
     fun openBuildingPicker() {
@@ -484,6 +505,19 @@ class MapSessionViewModel(
                 selectedBuildingId = null,
             )
         }
+    }
+
+    /**
+     * Back from the building picker: return to the building / floor that was open before it.
+     * Returns false when there is nothing to go back to (picker shown on entry), so the
+     * caller can treat back as "leave the map".
+     */
+    fun closeBuildingPicker(): Boolean {
+        if (!_state.value.showBuildingPicker) return false
+        val bid = previousBuildingId ?: return false
+        AppLog.i(TAG, "closeBuildingPicker → back to $bid | $previousFloorId")
+        switchMapState(bid, previousFloorId ?: OUTDOOR_FLOOR_ID)
+        return true
     }
 
     private fun switchMapState(buildingId: String, floorId: String) {
@@ -732,7 +766,7 @@ class MapSessionViewModel(
      */
     private fun onIncidentEnded(status: String) {
         viewModelScope.launch {
-            val role = runCatching { mapInteract.sessionIdentity().second }.getOrNull()
+            val role = runCatching { mapInteract.sessionIdentity(campusId).second }.getOrNull()
             val notice = IncidentEndedNotice(
                 incidentId = incidentId,
                 campusName = _state.value.campusName.ifBlank { "Campus" },
@@ -1222,7 +1256,7 @@ class MapSessionViewModel(
 
     private fun connectSocket() {
         firstConnect.set(true)
-        socketHelper.connect(sessionIdentityProvider = { mapInteract.sessionIdentity() }) {
+        socketHelper.connect(sessionIdentityProvider = { mapInteract.sessionIdentity(campusId) }) {
             val ticket = if (firstConnect.compareAndSet(true, false)) {
                 AppLog.d(TAG, "Using initial join ws ticket")
                 initialTicket
@@ -1503,4 +1537,5 @@ private fun com.guardianangel.dronetelementry.domain.model.DroneTelemetry.toMapP
     micDeviceStatus = micDeviceStatus,
     audioDeviceStatus = audioDeviceStatus,
     halowConnectivityStatus = halowConnectivityStatus,
+    pilotId = pilotId,
 )

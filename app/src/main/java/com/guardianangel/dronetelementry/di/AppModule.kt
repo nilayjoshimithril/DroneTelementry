@@ -6,6 +6,7 @@ import com.guardianangel.dronetelementry.data.remote.ApiService
 import com.guardianangel.dronetelementry.data.remote.AuthInterceptor
 import com.guardianangel.dronetelementry.data.remote.OAuthHelper
 import com.guardianangel.dronetelementry.data.remote.SessionEvents
+import com.guardianangel.dronetelementry.data.remote.TokenRefresher
 import com.guardianangel.dronetelementry.data.remote.UnauthorizedInterceptor
 import com.guardianangel.dronetelementry.data.socket.SocketHelper
 import com.guardianangel.dronetelementry.domain.interact.AuthInteract
@@ -49,7 +50,8 @@ val appModule = module {
     single { SessionStore(androidContext(), get()) }
     single { SessionEvents() }
     single { AuthInterceptor(get()) }
-    single { UnauthorizedInterceptor(get(), get()) }
+    single { TokenRefresher(get(), get(), get()) }
+    single { UnauthorizedInterceptor(get()) }
     single { OAuthHelper() }
 
     single {
@@ -127,13 +129,13 @@ val appModule = module {
     single { SocketHelper(get(named("wsClient")), get()) }
 
     single { AuthInteract(get(), get()) }
-    single { HomeInteract(get(), get()) }
+    single { HomeInteract(get()) }
     single { MapInteract(get(), get()) }
 
     viewModel { SplashViewModel(get()) }
-    viewModel { OnboardingViewModel(get(), get()) }
-    viewModel { HomeViewModel(get(), get(), get()) }
+    viewModel { OnboardingViewModel(get(), get(), get()) }
+    viewModel { HomeViewModel(get(), get()) }
     viewModel { MapSessionViewModel(get(), get(), get()) }
-    viewModel { SettingsViewModel(get(), get(), get()) }
-    viewModel { ZoomPreviewViewModel(get(), get(), get()) }
+    viewModel { SettingsViewModel(get(), get()) }
+    viewModel { ZoomPreviewViewModel(get()) }
 }

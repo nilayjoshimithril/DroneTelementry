@@ -71,4 +71,6 @@ data class DroneMapPose(
     val micDeviceStatus: String? = null,
     val audioDeviceStatus: String? = null,
     val halowConnectivityStatus: String? = null,
+    /** Pilot (user id) flying this drone, when telemetry carries it. */
+    val pilotId: String? = null,
 )

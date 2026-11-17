@@ -1,6 +1,5 @@
 package com.guardianangel.dronetelementry.domain.interact
 
-import com.guardianangel.dronetelementry.data.local.SessionStore
 import com.guardianangel.dronetelementry.data.model.IncidentRequestDto
 import com.guardianangel.dronetelementry.data.model.JoinIncidentResponseDto
 import com.guardianangel.dronetelementry.data.model.OngoingIncidentDto
@@ -9,16 +8,14 @@ import com.guardianangel.dronetelementry.utils.AppLog
 
 class HomeInteract(
     private val api: ApiService,
-    private val sessionStore: SessionStore,
 ) {
     /**
-     * Home screen ongoing list — **district_id only** (no campus_id).
+     * Home screen ongoing list. Internal users see every district and campus, so no
+     * district / campus filter is sent.
      */
     suspend fun fetchOngoingIncidents(): List<OngoingIncidentDto> {
-        val districtId = sessionStore.getDistrictId()
-            ?: throw IllegalStateException("No district selected")
-        AppLog.i(TAG, "API GET incidents/ongoing?district_id=$districtId")
-        val response = api.getOngoingIncidents(districtId)
+        AppLog.i(TAG, "API GET incidents/ongoing (all districts)")
+        val response = api.getOngoingIncidents()
         val list = response.data.orEmpty()
         AppLog.d(
             TAG,
