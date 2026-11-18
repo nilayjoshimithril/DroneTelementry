@@ -10,6 +10,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.guardianangel.dronetelementry.R
+import com.guardianangel.dronetelementry.kiosk.KioskManager
 import com.guardianangel.dronetelementry.ui.applyMithrilBlurredBackground
 import kotlinx.coroutines.launch
 import org.koin.androidx.viewmodel.ext.android.viewModel
@@ -32,11 +33,20 @@ class LoginFragment : Fragment(R.layout.fragment_splash) {
                 viewModel.nav.collect { dest ->
                     when (dest) {
                         OnboardingNav.Home -> findNavController().navigate(R.id.action_login_to_home)
-                        OnboardingNav.Exit -> requireActivity().finish()
+                        OnboardingNav.Exit -> exitOrRetry()
                         is OnboardingNav.Failed -> showFailure(dest.message)
                     }
                 }
             }
+        }
+    }
+
+    /** Kiosk: closing the Microsoft page can't leave the app — reopen sign-in instead. */
+    private fun exitOrRetry() {
+        if (KioskManager.isKiosk(requireContext())) {
+            viewModel.signIn(requireActivity())
+        } else {
+            requireActivity().finish()
         }
     }
 
@@ -45,8 +55,13 @@ class LoginFragment : Fragment(R.layout.fragment_splash) {
             .setTitle(R.string.sign_in_failed)
             .setMessage(message)
             .setCancelable(false)
-            .setNegativeButton(R.string.close) { _, _ -> requireActivity().finish() }
             .setPositiveButton(R.string.retry) { _, _ -> viewModel.signIn(requireActivity()) }
+            .apply {
+                // Kiosk: Retry only — there is nothing to close back to.
+                if (!KioskManager.isKiosk(requireContext())) {
+                    setNegativeButton(R.string.close) { _, _ -> requireActivity().finish() }
+                }
+            }
             .show()
     }
 }

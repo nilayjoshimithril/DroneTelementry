@@ -62,6 +62,7 @@ class MapSessionActivity : AppCompatActivity() {
     private var lastListDataKey: String? = null
     private var lastExpandedId: String? = null
     private var latestDrones: Map<String, DroneMapPose> = emptyMap()
+    private var latestDroneList: List<DroneMapPose> = emptyList()
     private val droneLayoutManager by lazy { LinearLayoutManager(this) }
     /** User-collapsed drone list — hides the panel so the map gets the full screen. */
     private var dronePanelCollapsed = false
@@ -217,7 +218,7 @@ class MapSessionActivity : AppCompatActivity() {
                     }
                 }
                 launch {
-                    viewModel.currentUserIdFlow.collect { droneAdapter.setCurrentUserId(it) }
+                    viewModel.currentPilotFlow.collect { droneAdapter.setCurrentPilot(it) }
                 }
                 launch {
                     viewModel.overlays.collect { overlays ->
@@ -227,6 +228,12 @@ class MapSessionActivity : AppCompatActivity() {
                 launch {
                     viewModel.drones.collect { drones ->
                         latestDrones = drones
+                        refreshDroneUi(viewModel.state.value.selectedDroneId)
+                    }
+                }
+                launch {
+                    viewModel.droneList.collect { list ->
+                        latestDroneList = list
                         refreshDroneUi(viewModel.state.value.selectedDroneId)
                     }
                 }
@@ -250,10 +257,11 @@ class MapSessionActivity : AppCompatActivity() {
         val drones = latestDrones
         binding.mosaicMap.updateDrones(drones, expandedId)
         // Keep the hint visible even while a row is expanded.
-        binding.droneSelectHint?.isVisible = drones.isNotEmpty()
+        binding.droneSelectHint?.isVisible = latestDroneList.isNotEmpty()
 
         // Rebuild list only when stable fields change — not every heading/pose tick.
-        val dataKey = drones.values
+        val list = latestDroneList
+        val dataKey = list
             .sortedBy { it.droneDisplayId }
             .joinToString("|") {
                 "${it.droneDisplayId}:${it.state}:${it.batteryPercent}:${it.motorStatus}:" +
@@ -263,7 +271,7 @@ class MapSessionActivity : AppCompatActivity() {
             }
         if (dataKey != lastListDataKey) {
             lastListDataKey = dataKey
-            droneAdapter.submitData(drones.values.toList())
+            droneAdapter.submitData(list)
             // Re-apply after full rebind so expand state is never lost.
             droneAdapter.setExpandedId(expandedId)
             lastExpandedId = expandedId
@@ -499,6 +507,7 @@ class MapSessionActivity : AppCompatActivity() {
         lastListDataKey = null
         lastExpandedId = null
         latestDrones = emptyMap()
+        latestDroneList = emptyList()
         super.onDestroy()
     }
 

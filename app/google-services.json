@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "672724204216",
+    "project_id": "dronetelementry",
+    "storage_bucket": "dronetelementry.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:672724204216:android:318436eaec2e7d1db9124d",
+        "android_client_info": {
+          "package_name": "com.guardianangel.dronetelementry"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA08wZtUt8aI0q2_wUYCLMbuWGiR4HdUi8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

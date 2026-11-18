@@ -10,6 +10,7 @@ import com.guardianangel.dronetelementry.data.model.MosaicAnnotationDto
 import com.guardianangel.dronetelementry.data.socket.SocketEvent
 import com.guardianangel.dronetelementry.data.socket.SocketHelper
 import com.guardianangel.dronetelementry.domain.interact.MapInteract
+import com.guardianangel.dronetelementry.domain.model.CurrentPilot
 import com.guardianangel.dronetelementry.domain.model.DroneMapPose
 import com.guardianangel.dronetelementry.domain.model.DroneTelemetry
 import com.guardianangel.dronetelementry.map.ColorPathway
@@ -182,6 +183,13 @@ class MapSessionViewModel(
     private val _drones = MutableStateFlow<Map<String, DroneMapPose>>(emptyMap())
     val drones: StateFlow<Map<String, DroneMapPose>> = _drones.asStateFlow()
 
+    private val _droneList = MutableStateFlow<List<DroneMapPose>>(emptyList())
+    /**
+     * Side-panel rows: every campus drone from `campuses/drones/` (API), with live telemetry
+     * merged in when the drone is reporting, plus any telemetry-only drone. Not layer-filtered.
+     */
+    val droneList: StateFlow<List<DroneMapPose>> = _droneList.asStateFlow()
+
     private val _overlays = MutableStateFlow(MapOverlays())
     val overlays: StateFlow<MapOverlays> = _overlays.asStateFlow()
 
@@ -211,7 +219,8 @@ class MapSessionViewModel(
     /** Latest raw telemetry — projected/filtered for the active outdoor/floor layer in [publishDrones]. */
     private var liveTelemetry: Map<String, DroneTelemetry> = emptyMap()
     /** In-memory demo fleet — distinct paths, floors, and status. */
-    private val demoDrones: List<DemoDroneActor> = DEMO_FLEET.map { DemoDroneActor(profile = it) }
+    private val demoDrones: List<DemoDroneActor> =
+        if (DEMO_FLEET_ENABLED) DEMO_FLEET.map { DemoDroneActor(profile = it) } else emptyList()
     /** Outdoor + floor stops used by the touring demo drone. */
     private var demoTourWaypoints: List<DemoWaypoint> = emptyList()
     private var demoFloorHomes: List<DemoWaypoint> = emptyList()
@@ -225,15 +234,15 @@ class MapSessionViewModel(
     private var colorPathways: List<ColorPathway> = emptyList()
     private var threatBannerJob: Job? = null
     private var followNonce = 0L
-    /** Logged-in user id — matched against drone `pilot_id` for the default focus. */
-    private var currentUserId: String? = null
+    /** Signed-in user — matched against drone `pilot_email` (then `pilot_id`) for "Mine". */
+    private var currentPilot: CurrentPilot = CurrentPilot()
         set(value) {
             field = value
-            _currentUserIdFlow.value = value
+            _currentPilotFlow.value = value
         }
-    private val _currentUserIdFlow = MutableStateFlow<String?>(null)
-    /** Logged-in user id — the drone list marks drones whose `pilot_id` matches as "Mine". */
-    val currentUserIdFlow: StateFlow<String?> = _currentUserIdFlow.asStateFlow()
+    private val _currentPilotFlow = MutableStateFlow(CurrentPilot())
+    /** The drone list marks drones whose `pilot_email` is the signed-in user's as "Mine". */
+    val currentPilotFlow: StateFlow<CurrentPilot> = _currentPilotFlow.asStateFlow()
     /** The pilot's own drone is auto-focused once per session; afterwards the user is in control. */
     private var pilotAutoFocusDone = false
 
@@ -244,7 +253,7 @@ class MapSessionViewModel(
                 "ticket=${AppLog.redact(initialTicket)}",
         )
         viewModelScope.launch { bootstrap() }
-        viewModelScope.launch { runDemoOrbit() }
+        if (DEMO_FLEET_ENABLED) viewModelScope.launch { runDemoOrbit() }
         viewModelScope.launch {
             socketHelper.connected.collect { connected ->
                 AppLog.d(TAG, "socket connected=$connected")
@@ -341,7 +350,7 @@ class MapSessionViewModel(
             // Saved zoom must be in state before the first layer is configured.
             val zoom = runCatching { mapInteract.mapZoomLevel() }.getOrDefault(MapInteract.DEFAULT_MAP_ZOOM)
             _state.update { it.copy(defaultZoom = zoom) }
-            currentUserId = runCatching { mapInteract.sessionIdentity(campusId).first }.getOrNull()
+            currentPilot = runCatching { mapInteract.currentPilot() }.getOrDefault(CurrentPilot())
             viewModelScope.launch { loadDroneRoster() }
 
             val annotations = runCatching {
@@ -712,35 +721,35 @@ class MapSessionViewModel(
                     TAG,
                     "Drone roster: " + drones.joinToString { "${it.displayId}(${it.type}/${it.status} pilot=${it.pilotId})" },
                 )
+                publishDrones()
                 autoFocusPilotDrone()
             }
             .onFailure { AppLog.w(TAG, "Drone roster load failed — list shows telemetry only", it) }
     }
 
     /**
-     * Default focus: once the map layer is up, select + follow the drone whose `pilot_id` is the
-     * logged-in user (roster or telemetry). Waits until that drone is reporting telemetry, and
+     * Default focus: once the map layer is up, select + follow the drone whose `pilot_email` (or,
+     * without one, `pilot_id`) is the logged-in user (roster or telemetry). Waits until that drone is reporting telemetry, and
      * never overrides a drone the user already picked.
      */
     private fun autoFocusPilotDrone() {
         if (pilotAutoFocusDone) return
-        val userId = currentUserId?.takeIf { it.isNotBlank() } ?: return
+        val pilot = currentPilot.takeIf { it.isKnown } ?: return
         if (_state.value.mosaic == null) return
         if (_state.value.selectedDroneId != null) {
             pilotAutoFocusDone = true
             return
         }
-        fun isMine(pilotId: String?) = pilotId?.equals(userId, ignoreCase = true) == true
         val demoTelemetry = demoDrones.mapNotNull { it.telemetry }
         val tracked = liveTelemetry.keys + demoTelemetry.map { it.displayId }
         val candidates = linkedSetOf<String>().apply {
-            liveTelemetry.values.filter { isMine(it.pilotId) }.mapTo(this) { it.displayId }
-            demoTelemetry.filter { isMine(it.pilotId) }.mapTo(this) { it.displayId }
-            _droneRoster.value.values.filter { isMine(it.pilotId) }.mapTo(this) { it.displayId }
+            liveTelemetry.values.filter { pilot.owns(it.pilotEmail, it.pilotId) }.mapTo(this) { it.displayId }
+            demoTelemetry.filter { pilot.owns(it.pilotEmail, it.pilotId) }.mapTo(this) { it.displayId }
+            _droneRoster.value.values.filter { pilot.owns(null, it.pilotId) }.mapTo(this) { it.displayId }
         }
         val droneId = candidates.firstOrNull { it in tracked } ?: return
         pilotAutoFocusDone = true
-        AppLog.i(TAG, "Auto-focusing pilot drone $droneId (pilot_id=$userId)")
+        AppLog.i(TAG, "Auto-focusing pilot drone $droneId (pilot=${AppLog.redact(pilot.email ?: pilot.userId)})")
         toggleDroneExpanded(droneId, fromMap = true)
     }
 
@@ -954,7 +963,8 @@ class MapSessionViewModel(
             escStatus = profile.escStatus,
             batteryUnitStatus = profile.batteryUnitStatus,
             motorStatus = profile.motorStatus,
-            pilotId = currentUserId.takeIf { profile.pilotedByCurrentUser },
+            pilotId = currentPilot.userId.takeIf { profile.pilotedByCurrentUser },
+            pilotEmail = currentPilot.email.takeIf { profile.pilotedByCurrentUser },
         )
     }
 
@@ -1171,8 +1181,38 @@ class MapSessionViewModel(
                 id to telemetry.toMapPose(pixel.x, pixel.y)
             }.toMap()
         }
-        ensureDroneSelectionTracked(allTelemetry.keys)
+        logDronePlacement(xf, visible)
+        val roster = _droneRoster.value
+        ensureDroneSelectionTracked(allTelemetry.keys + roster.keys)
         _drones.value = visible
+        _droneList.value = (roster.keys + allTelemetry.keys).map { id ->
+            visible[id]
+                ?: allTelemetry[id]?.toMapPose(0f, 0f)
+                ?: roster.getValue(id).toRosterPose()
+        }
+    }
+
+    private var placementLogCounter = 0
+
+    /**
+     * Diagnostic: layer transform + where each drone lands in pixels vs the layer size, and the
+     * first threat for comparison. Throttled; filter Logcat by `DroneTel/MapSessionVM` "placement".
+     */
+    private fun logDronePlacement(xf: FloorPlanTransform?, visible: Map<String, DroneMapPose>) {
+        if (xf == null || visible.isEmpty()) return
+        if (placementLogCounter++ % 20 != 0) return
+        val threat = _overlays.value.threats.firstOrNull()
+        AppLog.d(
+            TAG,
+            "placement layer=${_state.value.selectedBuildingId}/${_state.value.selectedFloorId} " +
+                "origin=(${xf.originX},${xf.originY}) u2px=${xf.unrealToPixels} " +
+                "world=${xf.worldWidth}x${xf.worldHeight} " +
+                "threat=${threat?.let { "${it.label}@px(${it.pixelX},${it.pixelY})" }} drones=" +
+                visible.values.joinToString { p ->
+                    "${p.droneDisplayId} unreal(${p.positionX.toInt()},${p.positionY.toInt()}) " +
+                        "px(${p.pixelX.toInt()},${p.pixelY.toInt()}) yaw=${p.headingDegrees.toInt()}"
+                },
+        )
     }
 
     /** Drop expansion only if the drone left telemetry entirely (not just off this floor). */
@@ -1400,6 +1440,9 @@ class MapSessionViewModel(
         private const val DEMO_FOOTPRINT_PAD_FRAC = 0.22f
         private val SQRT_2 = sqrt(2.0).toFloat()
 
+        /** Simulated drones for demos without hardware. Off: the list shows the campus API drones. */
+        private const val DEMO_FLEET_ENABLED = false
+
         private val DEMO_FLEET = listOf(
             // Stays outdoor — horizontal oval in NW campus quadrant.
             DemoDroneProfile(
@@ -1537,5 +1580,23 @@ private fun com.guardianangel.dronetelementry.domain.model.DroneTelemetry.toMapP
     micDeviceStatus = micDeviceStatus,
     audioDeviceStatus = audioDeviceStatus,
     halowConnectivityStatus = halowConnectivityStatus,
+    pilotId = pilotId,
+    pilotName = pilotName,
+    pilotEmail = pilotEmail,
+    pilotHexColor = pilotHexColor,
+)
+
+/** List row for a campus drone that is not reporting telemetry: API battery + status only. */
+private fun CampusDroneDto.toRosterPose(): DroneMapPose = DroneMapPose(
+    droneDisplayId = displayId,
+    deviceId = id,
+    pixelX = 0f,
+    pixelY = 0f,
+    headingDegrees = 0f,
+    batteryPercent = batteryLevel ?: 0,
+    state = status,
+    positionX = 0.0,
+    positionY = 0.0,
+    positionZ = 0.0,
     pilotId = pilotId,
 )

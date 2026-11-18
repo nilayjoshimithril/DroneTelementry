@@ -1,6 +1,7 @@
 package com.guardianangel.dronetelementry.presentation.settings
 
 import android.os.Bundle
+import androidx.core.view.isVisible
 import android.view.View
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
@@ -10,6 +11,7 @@ import androidx.navigation.fragment.findNavController
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.guardianangel.dronetelementry.BuildConfig
 import com.guardianangel.dronetelementry.R
+import com.guardianangel.dronetelementry.kiosk.KioskManager
 import com.guardianangel.dronetelementry.databinding.FragmentSettingsBinding
 import com.guardianangel.dronetelementry.ui.applyMithrilBlurredBackground
 import kotlinx.coroutines.launch
@@ -31,6 +33,13 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             findNavController().navigate(R.id.action_settings_to_zoom_campuses)
         }
         binding.rowLogout.setOnClickListener { confirmLogout() }
+        // Developer escape hatch so a test tablet can be released from kiosk mode.
+        binding.rowExitKiosk.isVisible =
+            BuildConfig.DEBUG && KioskManager.isDeviceOwner(requireContext())
+        binding.rowExitKiosk.setOnClickListener {
+            KioskManager.disableKiosk(requireActivity())
+            binding.rowExitKiosk.isVisible = false
+        }
         binding.appVersion.text = getString(R.string.app_version, BuildConfig.VERSION_NAME)
 
         viewLifecycleOwner.lifecycleScope.launch {

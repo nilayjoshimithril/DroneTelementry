@@ -25,4 +25,12 @@ data class DroneTelemetryDto(
     @SerialName("battery_unit_status") val batteryUnitStatus: String? = null,
     @SerialName("motor_status") val motorStatus: String? = null,
     @SerialName("pilot_id") val pilotId: String? = null,
+    /** Heading in degrees as reported by the drone; preferred over the pose quaternion. */
+    val yaw: Double? = null,
+    val pitch: Double? = null,
+    val roll: Double? = null,
+    @SerialName("pilot_name") val pilotName: String? = null,
+    @SerialName("pilot_email") val pilotEmail: String? = null,
+    /** Pilot's display colour, e.g. `#FF891C`. */
+    @SerialName("pilot_hex_color") val pilotHexColor: String? = null,
 )

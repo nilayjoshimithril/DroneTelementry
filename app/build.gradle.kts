@@ -12,7 +12,7 @@ android {
         applicationId = "com.guardianangel.dronetelementry"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
+        versionCode = 2
         versionName = "1.0.0-drone-poc"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -23,14 +23,18 @@ android {
         buildConfigField(
             "String",
             "API_BASE_URL",
-            "\"https://dev-api.campusguardianangel.com/v1/\""
+            "\"https://api.campusguardianangel.com/v1/\""
         )
+        //PROD:-https://api.campusguardianangel.com/v1/
+        //DEV:-https://dev-api.campusguardianangel.com/v1/
         // Cognito hosted UI — easy to replace in one place (also via AppConfig).
         buildConfigField(
             "String",
             "MICROSOFT_AD_AUTHORIZE_URL",
-            "\"https://us-east-1vmtjz6w3x.auth.us-east-1.amazoncognito.com/login?client_id=37d2tsdiofsn4gbvmr9l6qd6ue&response_type=code&scope=aws.cognito.signin.user.admin+email+openid+phone\""
+            "\"https://us-east-1cxclomj92.auth.us-east-1.amazoncognito.com/login?client_id=3bd4ib5k6pql057pvm0q67vp50&response_type=code&scope=aws.cognito.signin.user.admin+email+openid+phone\""
         )
+        // PRDO:-https://us-east-1cxclomj92.auth.us-east-1.amazoncognito.com/login?client_id=3bd4ib5k6pql057pvm0q67vp50&response_type=code&scope=aws.cognito.signin.user.admin+email+openid+phone
+        // DEV:-https://us-east-1vmtjz6w3x.auth.us-east-1.amazoncognito.com/login?client_id=37d2tsdiofsn4gbvmr9l6qd6ue&response_type=code&scope=aws.cognito.signin.user.admin+email+openid+phone
         buildConfigField(
             "String",
             "OAUTH_REDIRECT_URI",

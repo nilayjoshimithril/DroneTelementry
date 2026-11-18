@@ -9,6 +9,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.guardianangel.dronetelementry.R
 import com.guardianangel.dronetelementry.data.model.CampusDroneDto
 import com.guardianangel.dronetelementry.databinding.ItemDroneBinding
+import com.guardianangel.dronetelementry.domain.model.CurrentPilot
 import com.guardianangel.dronetelementry.domain.model.DroneMapPose
 
 /** KINETIC_STRIKE → "Kinetic Strike". */
@@ -24,12 +25,12 @@ class DroneListAdapter(
     private var expandedId: String? = null
     /** Campus roster by display_id (`campuses/drones/`), merged into each live row. */
     private var roster: Map<String, CampusDroneDto> = emptyMap()
-    /** Signed-in user id; rows whose pilot_id matches get the "Mine" badge. */
-    private var currentUserId: String? = null
+    /** Signed-in user; rows whose pilot_email (or, without one, pilot_id) matches get "Mine". */
+    private var currentPilot: CurrentPilot = CurrentPilot()
 
-    fun setCurrentUserId(userId: String?) {
-        if (userId == currentUserId) return
-        currentUserId = userId
+    fun setCurrentPilot(pilot: CurrentPilot) {
+        if (pilot == currentPilot) return
+        currentPilot = pilot
         notifyDataSetChanged()
     }
 
@@ -70,12 +71,11 @@ class DroneListAdapter(
     override fun onBindViewHolder(holder: Holder, position: Int) {
         val item = items[position]
         val rosterDrone = roster[item.droneDisplayId]
-        val userId = currentUserId?.takeIf { it.isNotBlank() }
         val pilotId = item.pilotId?.takeIf { it.isNotBlank() } ?: rosterDrone?.pilotId
         holder.bind(
             item = item,
             rosterDrone = rosterDrone,
-            isMine = userId != null && pilotId.equals(userId, ignoreCase = true),
+            isMine = currentPilot.owns(item.pilotEmail, pilotId),
             expanded = item.droneDisplayId == expandedId,
             onToggle = onToggle,
         )

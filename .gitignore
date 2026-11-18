@@ -35,3 +35,12 @@ hs_err_pid*
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Kiosk QR payloads (contain Wi-Fi password if given)
+tools/out/
+
+# Android Management API secrets / state
+tools/amapi/service-account.json
+tools/amapi/state.json
+tools/amapi/out/
+tools/amapi/.venv/

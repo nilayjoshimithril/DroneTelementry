@@ -1,6 +1,7 @@
 package com.guardianangel.dronetelementry.map
 
 import android.animation.Animator
+import android.animation.TimeAnimator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
@@ -123,8 +124,12 @@ class MosaicMapView @JvmOverloads constructor(
     private var transX = 0f
     private var transY = 0f
 
+    /** Drone markers as drawn this frame (interpolated by [droneSmoother] between updates). */
     @Volatile
     private var dronePoses: Map<String, DroneMapPose> = emptyMap()
+    private val droneSmoother = DroneMotionSmoother()
+    /** Ticks every frame while a drone marker is gliding; idle otherwise. */
+    private var droneGlideAnimator: TimeAnimator? = null
     @Volatile
     private var selectedDroneId: String? = null
     @Volatile
@@ -319,6 +324,9 @@ class MosaicMapView @JvmOverloads constructor(
         clearTiles()
         clearOverview()
         stopCameraAnimation()
+        // New layer = new pixel space: markers must snap, not slide across from the old floor.
+        stopDroneGlide()
+        droneSmoother.reset()
         // Mithril floor switch: the remounted map opens on the followed marker. A fly-to still
         // owed (locate across layers) wins and animates in from the fitted view instead.
         followSnapPending = follow != null && !followFlyToPending
@@ -328,10 +336,35 @@ class MosaicMapView @JvmOverloads constructor(
     }
 
     fun updateDrones(poses: Map<String, DroneMapPose>, selectedId: String? = selectedDroneId) {
-        dronePoses = poses
         selectedDroneId = selectedId
+        droneSmoother.setTargets(poses, SystemClock.uptimeMillis())
+        stepDroneGlide()
+        if (droneSmoother.isAnimating(SystemClock.uptimeMillis())) startDroneGlide()
+    }
+
+    /** Advance gliding markers to this frame; the follow camera rides the drawn position. */
+    private fun stepDroneGlide() {
+        dronePoses = droneSmoother.current(SystemClock.uptimeMillis())
         if (follow?.kind == CameraFollow.Kind.DRONE) applyFollowCamera()
         postInvalidateOnAnimation()
+    }
+
+    private fun startDroneGlide() {
+        if (droneGlideAnimator != null) return
+        droneGlideAnimator = TimeAnimator().apply {
+            setTimeListener { _, _, _ ->
+                stepDroneGlide()
+                if (!droneSmoother.isAnimating(SystemClock.uptimeMillis())) stopDroneGlide()
+            }
+            start()
+        }
+    }
+
+    private fun stopDroneGlide() {
+        droneGlideAnimator?.let {
+            droneGlideAnimator = null
+            it.cancel()
+        }
     }
 
     fun setSelectedDrone(id: String?) {
@@ -1440,6 +1473,7 @@ class MosaicMapView @JvmOverloads constructor(
         super.onDetachedFromWindow()
         context.applicationContext.unregisterComponentCallbacks(memoryCallbacks)
         stopCameraAnimation()
+        stopDroneGlide()
         navAnimator?.cancel()
         navAnimator = null
         clearTiles()

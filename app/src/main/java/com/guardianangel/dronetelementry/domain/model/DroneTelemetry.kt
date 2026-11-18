@@ -34,14 +34,39 @@ data class DroneTelemetry(
     val motorStatus: String?,
     /** Pilot (user id) flying this drone, when telemetry carries it. */
     val pilotId: String? = null,
+    val pilotName: String? = null,
+    /** Matched against the signed-in user's email to mark the drone "Mine". */
+    val pilotEmail: String? = null,
+    /** Pilot's display colour as sent (e.g. `#FF891C`); unparsed. */
+    val pilotHexColor: String? = null,
+    /** Telemetry `yaw` (degrees). When present it drives the marker direction. */
+    val yawDegrees: Double? = null,
+    /**
+     * Direction of travel (Unreal yaw, degrees) from the last position to this one; null until the
+     * drone has moved far enough to tell. Takes priority so the arrow points where it is going.
+     */
+    val courseDegrees: Double? = null,
 ) {
-    /** Yaw in degrees from Unreal-style quaternion (Z-up). */
+    /**
+     * Marker heading in degrees (Unreal yaw: 0° = +X, clockwise on the map).
+     * Priority: direction of travel → reported `yaw` → pose quaternion (Z-up).
+     */
     val headingDegrees: Double
         get() {
+            courseDegrees?.let { return it }
+            yawDegrees?.let { return it + YAW_OFFSET_DEG }
             val sinyCosp = 2.0 * (rotationW * rotationZ + rotationX * rotationY)
             val cosyCosp = 1.0 - 2.0 * (rotationY * rotationY + rotationZ * rotationZ)
             return Math.toDegrees(atan2(sinyCosp, cosyCosp))
         }
+
+    companion object {
+        /**
+         * Added to telemetry `yaw` before drawing. 0 assumes the drone's yaw shares Unreal's
+         * zero (+X). If every arrow is off by the same angle (e.g. 90°), set it here.
+         */
+        const val YAW_OFFSET_DEG = 0.0
+    }
 }
 
 /**
@@ -73,4 +98,9 @@ data class DroneMapPose(
     val halowConnectivityStatus: String? = null,
     /** Pilot (user id) flying this drone, when telemetry carries it. */
     val pilotId: String? = null,
+    val pilotName: String? = null,
+    /** Matched against the signed-in user's email to mark the drone "Mine". */
+    val pilotEmail: String? = null,
+    /** Pilot's display colour as sent (e.g. `#FF891C`); unparsed. */
+    val pilotHexColor: String? = null,
 )

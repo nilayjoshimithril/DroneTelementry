@@ -434,8 +434,10 @@ class SocketHelper(
             val id = dto.displayId.ifBlank { dto.deviceId }
             if (id.isBlank()) return@forEach
             val pose = dto.pose
-            val position = pose.position
-            val rotation = pose.rotation
+            // Wire pose is Y-up meters; map pipeline expects Unreal Z-up (cm on the floor plane).
+            val position = PoseFrameConverter.position(pose.position)
+            val rotation = PoseFrameConverter.rotation(pose.rotation)
+            val course = courseFrom(merged[id], position.x, position.y)
             merged[id] = DroneTelemetry(
                 displayId = id,
                 deviceId = dto.deviceId.ifBlank { id },
@@ -466,6 +468,12 @@ class SocketHelper(
                 batteryUnitStatus = dto.batteryUnitStatus,
                 motorStatus = dto.motorStatus,
                 pilotId = dto.pilotId,
+                pilotName = dto.pilotName,
+                pilotEmail = dto.pilotEmail,
+                pilotHexColor = dto.pilotHexColor,
+                // Heading comes from the pose quaternion for now; set to dto.yaw to use reported yaw.
+                yawDegrees = null,
+                courseDegrees = course,
             )
         }
         _drones.value = merged
@@ -474,13 +482,31 @@ class SocketHelper(
             AppLog.d(
                 TAG,
                 "on-drone-telemetry batch=${list.size} drones=${merged.keys} " +
-                    "sample=${list.firstOrNull()?.let { "${it.displayId}@(${it.pose.position.x},${it.pose.position.y},${it.pose.position.z})" }}",
+                    "sample=${list.firstOrNull()?.let { dto ->
+                        val u = PoseFrameConverter.position(dto.pose.position)
+                        "${dto.displayId}@raw(${dto.pose.position.x},${dto.pose.position.y},${dto.pose.position.z})" +
+                            " unreal(${u.x},${u.y}) alt=${u.z}"
+                    }}",
             )
         }
     }
 
+    /**
+     * Direction of travel (Unreal yaw: 0° = +X, 90° = +Y) from [previous] to (x, y). Below
+     * [MIN_COURSE_MOVE_UNREAL] the drone is treated as hovering and keeps its last course.
+     */
+    private fun courseFrom(previous: DroneTelemetry?, x: Double, y: Double): Double? {
+        previous ?: return null
+        val dx = x - previous.positionX
+        val dy = y - previous.positionY
+        if (kotlin.math.hypot(dx, dy) < MIN_COURSE_MOVE_UNREAL) return previous.courseDegrees
+        return Math.toDegrees(kotlin.math.atan2(dy, dx))
+    }
+
     companion object {
         private const val TAG = "Socket"
+        /** 0.5 m: smaller moves are pose jitter, not a new direction of travel. */
+        private const val MIN_COURSE_MOVE_UNREAL = 50.0
         /** Every inbound (<<) / outbound (>>) frame, unabridged. Filter Logcat by `DroneTel/SocketRaw`. */
         private const val RAW_TAG = "SocketRaw"
 

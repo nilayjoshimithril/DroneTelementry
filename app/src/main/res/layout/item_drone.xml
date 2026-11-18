@@ -53,7 +53,7 @@
                     android:textSize="14sp"
                     tools:text="118.001" />
 
-                <!-- Drone whose pilot_id is the signed-in user. -->
+                <!-- Drone whose pilot_email (or pilot_id) is the signed-in user. -->
                 <TextView
                     android:id="@+id/drone_mine_badge"
                     android:layout_width="wrap_content"

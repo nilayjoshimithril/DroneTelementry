@@ -1,6 +1,7 @@
 package com.guardianangel.dronetelementry
 
 import android.os.Bundle
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -11,6 +12,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.NavHostFragment
 import com.guardianangel.dronetelementry.data.remote.SessionEvents
 import com.guardianangel.dronetelementry.databinding.ActivityMainBinding
+import com.guardianangel.dronetelementry.kiosk.KioskManager
 import com.guardianangel.dronetelementry.utils.AppLog
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
@@ -26,6 +28,7 @@ class MainActivity : AppCompatActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, true)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        installKioskBackGuard()
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
@@ -54,6 +57,31 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Kiosk: pin the app (no-op unless the app is device owner).
+        KioskManager.enterLockTask(this)
+    }
+
+    /** Kiosk: back on the first screen must not close the app (there's nothing behind it). */
+    private fun installKioskBackGuard() {
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val navController =
+                    (supportFragmentManager.findFragmentById(R.id.nav_host) as? NavHostFragment)
+                        ?.navController
+                if (navController?.popBackStack() == true) return
+                if (KioskManager.isKiosk(this@MainActivity)) {
+                    AppLog.d(TAG, "Back at root ignored — kiosk mode")
+                    return
+                }
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+                isEnabled = true
+            }
+        })
     }
 
     companion object {

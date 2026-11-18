@@ -84,4 +84,7 @@
     <string name="map_not_available_zoom">This campus doesn\'t have a map yet, so the zoom level can\'t be set from here. Choose another campus.</string>
     <string name="choose_another_campus">Choose another campus</string>
     <string name="incident_running">Running %1$s</string>
+    <string name="kiosk_admin_description">Locks this tablet to Campus Guardian Angel so no other app can be opened.</string>
+    <string name="kiosk_exit">Exit kiosk mode (debug)</string>
+    <string name="kiosk_exit_desc">Unpins the app and removes device-owner control.</string>
 </resources>

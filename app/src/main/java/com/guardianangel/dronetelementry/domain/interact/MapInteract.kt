@@ -6,6 +6,7 @@ import com.guardianangel.dronetelementry.data.model.MapConfigResponseDto
 import com.guardianangel.dronetelementry.data.model.MosaicAnnotationDto
 import com.guardianangel.dronetelementry.data.model.WsTicketRequestDto
 import com.guardianangel.dronetelementry.data.remote.ApiService
+import com.guardianangel.dronetelementry.domain.model.CurrentPilot
 import com.guardianangel.dronetelementry.utils.AppLog
 
 class MapInteract(
@@ -16,6 +17,15 @@ class MapInteract(
      * Mithril `session-detail` publish payload: logged-in user id + the role on [campusId]
      * (the incident's campus), falling back to the user-level role.
      */
+    /** Signed-in user's id + email, for matching drone `pilot_email` / `pilot_id` ("Mine"). */
+    suspend fun currentPilot(): CurrentPilot {
+        val user = sessionStore.getAccessTokenResponse()?.userDetail ?: return CurrentPilot()
+        return CurrentPilot(
+            userId = user.id.takeIf { it.isNotBlank() },
+            email = user.email.takeIf { it.isNotBlank() },
+        )
+    }
+
     suspend fun sessionIdentity(campusId: String): Pair<String?, String?> {
         val user = sessionStore.getAccessTokenResponse()?.userDetail ?: return null to null
         val role = user.campuses.orEmpty()

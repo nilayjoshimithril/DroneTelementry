@@ -206,6 +206,39 @@
                         android:textSize="13sp" />
                 </LinearLayout>
 
+                <!-- Debug builds only, and only while the app is device owner. -->
+                <LinearLayout
+                    android:id="@+id/row_exit_kiosk"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:background="@drawable/bg_settings_card"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:minHeight="64dp"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="16dp"
+                    android:paddingVertical="12dp"
+                    android:visibility="gone"
+                    tools:visibility="visible">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/kiosk_exit"
+                        android:textColor="@color/md_orange"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/kiosk_exit_desc"
+                        android:textColor="@color/md_hint"
+                        android:textSize="13sp" />
+                </LinearLayout>
+
                 <TextView
                     android:id="@+id/app_version"
                     android:layout_width="match_parent"
