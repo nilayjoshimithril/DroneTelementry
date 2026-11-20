@@ -26,20 +26,35 @@ class SessionEvents {
     private val _unauthorized = MutableStateFlow(false)
     val unauthorized: StateFlow<Boolean> = _unauthorized.asStateFlow()
 
-    /**
-     * Auto-join the oldest ongoing incident once per app start (and once after each sign-in).
-     * Lives here (app singleton) so returning to Home from the map never re-joins.
+    /*
+     * Incident auto-join state. Lives here (app singleton) so it survives Home being recreated
+     * and the round trip to the map screen.
+     *
+     * Rule: whenever exactly one incident is ongoing (at app start, when one appears on an empty
+     * list, or when others end and one is left), join it — unless the user already joined that
+     * incident (auto or manual). Leaving it and finding it still ongoing must not pull them back.
      */
-    @Volatile
-    private var autoJoinArmed = true
+    private val joinedIncidentIds = mutableSetOf<String>()
 
-    fun armAutoJoin() {
-        autoJoinArmed = true
+    /** Fresh session (sign-in): forget joined incidents. */
+    fun armAutoJoin() = synchronized(this) {
+        joinedIncidentIds.clear()
     }
 
-    /** True exactly once until re-armed. */
-    fun takeAutoJoin(): Boolean = synchronized(this) {
-        autoJoinArmed.also { autoJoinArmed = false }
+    /** Remember that the user joined [incidentId] so it is never auto-joined again. */
+    fun markIncidentJoined(incidentId: String) = synchronized(this) {
+        joinedIncidentIds += incidentId
+    }
+
+    /**
+     * Feed every successful ongoing-incident load. Returns the id to auto-join, or null.
+     * The returned incident is marked joined.
+     */
+    fun takeAutoJoin(ongoingIds: List<String>): String? = synchronized(this) {
+        val only = ongoingIds.singleOrNull() ?: return null
+        if (only in joinedIncidentIds) return null
+        joinedIncidentIds += only
+        only
     }
 
     fun consumeUnauthorized() {

@@ -15,6 +15,8 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.BitmapDrawable
@@ -221,9 +223,22 @@ class MosaicMapView @JvmOverloads constructor(
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textSize = 28f
-        setShadowLayer(4f, 0f, 1f, Color.BLACK)
+        isFakeBoldText = true
+        setShadowLayer(3f, 0f, 1f, Color.BLACK)
     }
+    private val labelBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val labelBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.argb(0x66, 0xFF, 0xFF, 0xFF)
+    }
+    private val labelRect = RectF()
+    /** Parsed `pilot_hex_color` values (null = unparseable), so labels don't re-parse per frame. */
+    private val pilotColorCache = HashMap<String, Int?>()
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    /** Drone glyph recoloured dark, for light pilot colours where the white glyph would vanish. */
+    private val iconDarkPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+        colorFilter = PorterDuffColorFilter(DRONE_ON_LIGHT_COLOR, PorterDuff.Mode.SRC_IN)
+    }
     private val pathwayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
@@ -1092,7 +1107,13 @@ class MosaicMapView @JvmOverloads constructor(
         val ringR = bodyHalf * 1.55f
         val selected = pose.droneDisplayId == selectedDroneId
         val isDemo = pose.droneDisplayId.startsWith("DEMO", ignoreCase = true)
-        dronePaint.color = if (isDemo) DEMO_DRONE_COLOR else DRONE_COLOR
+        // Pilot's colour when telemetry sends one, otherwise the default marker colour.
+        val pilotColor = pilotColor(pose)
+        dronePaint.color = pilotColor ?: if (isDemo) DEMO_DRONE_COLOR else DRONE_COLOR
+        // On a light body (white, yellow, …) the white glyph and outline would blend in,
+        // so switch both to a dark colour.
+        val lightBody = pilotColor != null && isLightColor(pilotColor)
+        droneStroke.color = if (lightBody) DRONE_ON_LIGHT_COLOR else Color.WHITE
 
         if (selected) {
             val selHalf = ringR + 10f * inv
@@ -1176,16 +1197,63 @@ class MosaicMapView @JvmOverloads constructor(
                 pose.pixelX + iconHalf,
                 pose.pixelY + iconHalf,
             )
-            canvas.drawBitmap(bmp, null, droneBodyRect, iconPaint)
+            canvas.drawBitmap(bmp, null, droneBodyRect, if (lightBody) iconDarkPaint else iconPaint)
         }
 
-        labelPaint.textSize = 32f * inv
-        canvas.drawText(
-            pose.droneDisplayId,
-            pose.pixelX + ringR + 12f * inv,
-            pose.pixelY - 2f * inv,
-            labelPaint,
+        drawDroneLabel(canvas, pose, pose.pixelX + ringR + 12f * inv, pose.pixelY, inv)
+    }
+
+    /**
+     * Pilot name / "Me" beside the marker on a rounded, semi-transparent pill so it stays legible
+     * on light and dark map areas. The pill uses the pilot's colour when telemetry sends one.
+     */
+    private fun drawDroneLabel(canvas: Canvas, pose: DroneMapPose, left: Float, centerY: Float, inv: Float) {
+        val text = pose.mapLabel
+        labelPaint.textSize = 28f * inv
+        val padH = 10f * inv
+        val padV = 5f * inv
+        val textWidth = labelPaint.measureText(text)
+        val fm = labelPaint.fontMetrics
+        val textHeight = fm.descent - fm.ascent
+        labelRect.set(
+            left,
+            centerY - textHeight / 2f - padV,
+            left + textWidth + padH * 2f,
+            centerY + textHeight / 2f + padV,
         )
+        labelBgPaint.color = labelBackgroundColor(pose)
+        val radius = labelRect.height() / 2f
+        canvas.drawRoundRect(labelRect, radius, radius, labelBgPaint)
+        labelBorderPaint.strokeWidth = 1.5f * inv
+        canvas.drawRoundRect(labelRect, radius, radius, labelBorderPaint)
+        // Baseline that vertically centres the text in the pill.
+        val baseline = centerY - (fm.ascent + fm.descent) / 2f
+        canvas.drawText(text, left + padH, baseline, labelPaint)
+    }
+
+    /** Parsed `pilot_hex_color` (`#RRGGBB`, `RRGGBB` or `#AARRGGBB`), or null if absent/invalid. */
+    private fun pilotColor(pose: DroneMapPose): Int? {
+        val raw = pose.pilotHexColor?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return pilotColorCache.getOrPut(raw) {
+            runCatching { Color.parseColor(if (raw.startsWith("#")) raw else "#$raw") }
+                .getOrNull()
+                ?.let { it or 0xFF000000.toInt() } // marker body is always opaque
+        }
+    }
+
+    /** Perceived brightness (Rec. 601 luma): true when white on top would be hard to see. */
+    private fun isLightColor(color: Int): Boolean {
+        val luma = 0.299f * Color.red(color) + 0.587f * Color.green(color) + 0.114f * Color.blue(color)
+        return luma > LIGHT_COLOR_LUMA
+    }
+
+    private fun labelBackgroundColor(pose: DroneMapPose): Int {
+        val base = pilotColor(pose) ?: return LABEL_DEFAULT_BG
+        // Darken a little so white text stays readable even on a light pilot colour.
+        val r = (Color.red(base) * 0.8f).toInt()
+        val g = (Color.green(base) * 0.8f).toInt()
+        val b = (Color.blue(base) * 0.8f).toInt()
+        return Color.argb(LABEL_BG_ALPHA, r, g, b)
     }
 
     /** Nearest threat marker under the finger, compared in screen px (focused icon is 2x). */
@@ -1551,7 +1619,14 @@ class MosaicMapView @JvmOverloads constructor(
 
         private val BACKGROUND_COLOR = Color.parseColor("#0E0F13")
         private val DRONE_COLOR = Color.parseColor("#FF891C")
+        /** Drone label pill: ~75% opaque so the map shows through but text stays readable. */
+        private const val LABEL_BG_ALPHA = 0xC0
+        private val LABEL_DEFAULT_BG = Color.argb(LABEL_BG_ALPHA, 0x10, 0x12, 0x18)
         private val DEMO_DRONE_COLOR = Color.parseColor("#297FFF")
+        /** Glyph + outline colour on light pilot colours (white, yellow, light grey…). */
+        private val DRONE_ON_LIGHT_COLOR = Color.parseColor("#14161C")
+        /** Luma (0–255) above which a pilot colour counts as light. */
+        private const val LIGHT_COLOR_LUMA = 170f
         private val ANNOTATION_FALLBACK_COLOR = Color.parseColor("#297FFF")
         private val ACCENT_COLOR = Color.parseColor("#0EEAC6")
         private val HEADING_RING_COLOR = Color.parseColor("#66FFFFFF")

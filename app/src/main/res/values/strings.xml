@@ -15,7 +15,7 @@
     <string name="drones">Drones</string>
     <string name="collapse_drones">Hide drone list</string>
     <string name="expand_drones">Show drone list</string>
-    <string name="mine_drone">Mine</string>
+    <string name="mine_drone">Me</string>
     <string name="brand_title">Mithril Defense</string>
     <string name="brand_subtitle">Pilot drone console</string>
     <string name="select_building">Select Building</string>
@@ -87,4 +87,6 @@
     <string name="kiosk_admin_description">Locks this tablet to Campus Guardian Angel so no other app can be opened.</string>
     <string name="kiosk_exit">Exit kiosk mode (debug)</string>
     <string name="kiosk_exit_desc">Unpins the app and removes device-owner control.</string>
+    <string name="battery_low_title">Battery low</string>
+    <string name="battery_low_message">Tablet battery is at %1$d%%. Connect a charger to keep the map running.</string>
 </resources>

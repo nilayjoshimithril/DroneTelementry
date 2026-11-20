@@ -236,13 +236,6 @@ class MapSessionViewModel(
     private var followNonce = 0L
     /** Signed-in user — matched against drone `pilot_email` (then `pilot_id`) for "Mine". */
     private var currentPilot: CurrentPilot = CurrentPilot()
-        set(value) {
-            field = value
-            _currentPilotFlow.value = value
-        }
-    private val _currentPilotFlow = MutableStateFlow(CurrentPilot())
-    /** The drone list marks drones whose `pilot_email` is the signed-in user's as "Mine". */
-    val currentPilotFlow: StateFlow<CurrentPilot> = _currentPilotFlow.asStateFlow()
     /** The pilot's own drone is auto-focused once per session; afterwards the user is in control. */
     private var pilotAutoFocusDone = false
 
@@ -1178,7 +1171,7 @@ class MapSessionViewModel(
                     PointF(telemetry.positionX.toFloat(), telemetry.positionY.toFloat()),
                     xf,
                 )
-                id to telemetry.toMapPose(pixel.x, pixel.y)
+                id to telemetry.toMapPose(pixel.x, pixel.y).withOwnership()
             }.toMap()
         }
         logDronePlacement(xf, visible)
@@ -1187,9 +1180,19 @@ class MapSessionViewModel(
         _drones.value = visible
         _droneList.value = (roster.keys + allTelemetry.keys).map { id ->
             visible[id]
-                ?: allTelemetry[id]?.toMapPose(0f, 0f)
-                ?: roster.getValue(id).toRosterPose()
+                ?: allTelemetry[id]?.toMapPose(0f, 0f)?.withOwnership()
+                ?: roster.getValue(id).toRosterPose().withOwnership()
         }
+    }
+
+    /**
+     * "Mine": telemetry pilot_email (else pilot_id), falling back to the campus roster's
+     * pilot_id when telemetry carries neither.
+     */
+    private fun DroneMapPose.withOwnership(): DroneMapPose {
+        val pilotId = pilotId?.takeIf { it.isNotBlank() }
+            ?: _droneRoster.value[droneDisplayId]?.pilotId
+        return copy(isMine = currentPilot.owns(pilotEmail, pilotId))
     }
 
     private var placementLogCounter = 0

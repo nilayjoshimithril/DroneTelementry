@@ -26,6 +26,7 @@ import com.guardianangel.dronetelementry.databinding.FragmentHomeBinding
 import com.guardianangel.dronetelementry.presentation.map.MapSessionActivity
 import com.guardianangel.dronetelementry.ui.applyMithrilBlurredBackground
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
@@ -143,7 +144,7 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                 )
             }
         }
-        MaterialAlertDialogBuilder(ctx)
+        val dialog = MaterialAlertDialogBuilder(ctx)
             .setTitle(R.string.alarm_ended)
             .setMessage(message)
             .setCancelable(false)
@@ -152,6 +153,13 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
                 null,
             )
             .show()
+        // Close on its own if the user doesn't. Tied to the view lifecycle so it never touches
+        // a dismissed dialog or a destroyed fragment.
+        val autoDismiss = viewLifecycleOwner.lifecycleScope.launch {
+            delay(INCIDENT_ENDED_AUTO_DISMISS_MS)
+            if (dialog.isShowing) dialog.dismiss()
+        }
+        dialog.setOnDismissListener { autoDismiss.cancel() }
     }
 
     private fun incidentLayoutManager() =
@@ -166,6 +174,10 @@ class HomeFragment : Fragment(R.layout.fragment_home) {
         val landscape =
             resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         return sw >= 600 || (landscape && resources.configuration.screenWidthDp >= 840)
+    }
+
+    companion object {
+        private const val INCIDENT_ENDED_AUTO_DISMISS_MS = 5_000L
     }
 
     override fun onDestroyView() {

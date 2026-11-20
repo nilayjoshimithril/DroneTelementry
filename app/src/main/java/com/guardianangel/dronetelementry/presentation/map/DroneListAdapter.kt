@@ -9,7 +9,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.guardianangel.dronetelementry.R
 import com.guardianangel.dronetelementry.data.model.CampusDroneDto
 import com.guardianangel.dronetelementry.databinding.ItemDroneBinding
-import com.guardianangel.dronetelementry.domain.model.CurrentPilot
 import com.guardianangel.dronetelementry.domain.model.DroneMapPose
 
 /** KINETIC_STRIKE → "Kinetic Strike". */
@@ -25,15 +24,6 @@ class DroneListAdapter(
     private var expandedId: String? = null
     /** Campus roster by display_id (`campuses/drones/`), merged into each live row. */
     private var roster: Map<String, CampusDroneDto> = emptyMap()
-    /** Signed-in user; rows whose pilot_email (or, without one, pilot_id) matches get "Mine". */
-    private var currentPilot: CurrentPilot = CurrentPilot()
-
-    fun setCurrentPilot(pilot: CurrentPilot) {
-        if (pilot == currentPilot) return
-        currentPilot = pilot
-        notifyDataSetChanged()
-    }
-
     fun submitRoster(map: Map<String, CampusDroneDto>) {
         if (map == roster) return
         roster = map
@@ -71,11 +61,10 @@ class DroneListAdapter(
     override fun onBindViewHolder(holder: Holder, position: Int) {
         val item = items[position]
         val rosterDrone = roster[item.droneDisplayId]
-        val pilotId = item.pilotId?.takeIf { it.isNotBlank() } ?: rosterDrone?.pilotId
         holder.bind(
             item = item,
             rosterDrone = rosterDrone,
-            isMine = currentPilot.owns(item.pilotEmail, pilotId),
+            isMine = item.isMine,
             expanded = item.droneDisplayId == expandedId,
             onToggle = onToggle,
         )
@@ -94,11 +83,15 @@ class DroneListAdapter(
             expanded: Boolean,
             onToggle: (String) -> Unit,
         ) {
-            binding.droneId.text = item.droneDisplayId
-            binding.droneMineBadge.isVisible = isMine
+            // Same label as on the map: "Me (name)" / "Me" / pilot name / display id.
+            binding.droneId.text = item.mapLabel
+            // The title already says "Me", so the badge would only repeat it.
+            binding.droneMineBadge.isVisible = false
+            // When the title isn't the display id, keep the id visible on the meta line.
+            val idPrefix = item.droneDisplayId.takeIf { item.mapLabel != it }
             // Roster type (e.g. "Dazzler") in front of the live state line.
             val type = rosterDrone?.type?.let(::formatEnumLabel)
-            binding.droneMeta.text = listOfNotNull(type, item.listMetaLine()).joinToString(" · ")
+            binding.droneMeta.text = listOfNotNull(idPrefix, type, item.listMetaLine()).joinToString(" · ")
             binding.droneBattery.text = "${item.batteryPercent}%"
             binding.droneBattery.applyToneColor(batteryTone(item.batteryPercent))
             binding.droneCard.setBackgroundResource(

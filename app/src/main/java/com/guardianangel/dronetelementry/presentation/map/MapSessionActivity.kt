@@ -218,9 +218,6 @@ class MapSessionActivity : AppCompatActivity() {
                     }
                 }
                 launch {
-                    viewModel.currentPilotFlow.collect { droneAdapter.setCurrentPilot(it) }
-                }
-                launch {
                     viewModel.overlays.collect { overlays ->
                         binding.mosaicMap.updateOverlays(overlays.pathways, overlays.threats)
                     }

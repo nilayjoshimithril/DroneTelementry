@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.time.Instant
 
 data class HomeUiState(
     val incidents: List<OngoingIncidentDto> = emptyList(),
@@ -98,7 +97,7 @@ class HomeViewModel(
                     AppLog.i(TAG, "Incidents loaded count=${list.size} ids=$nextIds")
                 }
                 _state.update { it.copy(loading = false, incidents = list, error = null) }
-                autoJoinFirstIncident(list)
+                autoJoinSingleIncident(list)
             }
             .onFailure { e ->
                 AppLog.e(TAG, "Failed to load incidents", e)
@@ -114,22 +113,14 @@ class HomeViewModel(
     }
 
     /**
-     * On app start, if incidents are ongoing, join the one triggered first (oldest CreatedAt).
-     * Only the first successful load of the session decides: an empty list or a later manual
-     * leave never triggers it again.
+     * Auto-join whenever exactly one incident is ongoing and the user hasn't joined it before
+     * (an incident they joined and left is never auto-joined again). See [SessionEvents.takeAutoJoin].
      */
-    private fun autoJoinFirstIncident(list: List<OngoingIncidentDto>) {
-        if (!sessionEvents.takeAutoJoin()) return
-        val first = list.minByOrNull { incident ->
-            incident.createdAt
-                ?.let { runCatching { Instant.parse(it.trim()).toEpochMilli() }.getOrNull() }
-                ?: Long.MAX_VALUE
-        } ?: run {
-            AppLog.i(TAG, "Auto-join: no ongoing incidents")
-            return
-        }
-        AppLog.i(TAG, "Auto-join first triggered incident id=${first.id} createdAt=${first.createdAt}")
-        join(first)
+    private fun autoJoinSingleIncident(list: List<OngoingIncidentDto>) {
+        val id = sessionEvents.takeAutoJoin(list.map { it.id }) ?: return
+        val incident = list.first { it.id == id }
+        AppLog.i(TAG, "Auto-join single ongoing incident id=${incident.id}")
+        join(incident)
     }
 
     fun join(incident: OngoingIncidentDto, userStatus: String? = null) {
@@ -140,6 +131,7 @@ class HomeViewModel(
         }
         viewModelScope.launch {
             AppLog.i(TAG, "Join incident id=${incident.id} campusId=${incident.campusId}")
+            sessionEvents.markIncidentJoined(incident.id)
             _state.update { it.copy(joiningId = incident.id, error = null) }
             runCatching { homeInteract.joinIncident(incident.id, userStatus) }
                 .onSuccess { joined ->

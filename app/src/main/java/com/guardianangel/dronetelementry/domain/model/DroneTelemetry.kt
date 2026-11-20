@@ -103,4 +103,21 @@ data class DroneMapPose(
     val pilotEmail: String? = null,
     /** Pilot's display colour as sent (e.g. `#FF891C`); unparsed. */
     val pilotHexColor: String? = null,
-)
+    /** Flown by the signed-in user (pilot_email, else pilot_id). */
+    val isMine: Boolean = false,
+) {
+    /**
+     * Map label beside the marker: "Me (name)" / "Me" for the user's own drone, otherwise the
+     * pilot's name, falling back to the drone's display id.
+     */
+    val mapLabel: String
+        get() {
+            val name = pilotName?.trim()?.takeIf { it.isNotEmpty() }
+            return when {
+                isMine && name != null -> "Me ($name)"
+                isMine -> "Me"
+                name != null -> name
+                else -> droneDisplayId
+            }
+        }
+}
